@@ -1,0 +1,12 @@
+name: click.policy
+action: click
+risk: medium
+sensitive_params: [target]
+requires:
+  - predicate: UI_ELEMENT
+    min_trust: trusted
+fallback:
+  trusted: ALLOW
+  untrusted: CONFIRM
+  unknown: BLOCK
+  conflict: BLOCK

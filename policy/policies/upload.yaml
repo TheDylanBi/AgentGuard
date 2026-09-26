@@ -1,0 +1,14 @@
+name: upload.policy
+action: upload
+risk: high
+sensitive_params: [target]
+requires:
+  - predicate: UI_ELEMENT
+    min_trust: trusted
+capability_requirements:
+  credential: denied
+fallback:
+  trusted: ALLOW
+  untrusted: CONFIRM
+  unknown: BLOCK
+  conflict: BLOCK

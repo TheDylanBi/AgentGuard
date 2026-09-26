@@ -1,0 +1,13 @@
+name: read_file.policy
+action: read_file
+risk: medium
+sensitive_params: [target]
+requires: []
+no_evidence_verdict: ALLOW
+path_globs:
+  field: filesystem_read
+fallback:
+  trusted: ALLOW
+  untrusted: CONFIRM
+  unknown: BLOCK
+  conflict: BLOCK

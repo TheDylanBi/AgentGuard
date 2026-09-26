@@ -1,0 +1,18 @@
+# ICB-Guard Gateway P0 dependencies
+fastapi>=0.110
+uvicorn>=0.29
+pydantic>=2.6
+cryptography>=42.0
+PyYAML>=6.0
+Pillow>=10.0
+numpy>=1.26
+requests>=2.31
+rapidocr_onnxruntime>=1.3.8
+z3-solver>=4.12
+
+# Optional: real GroundingDINO verifier (large download ~700MB)
+#   pip install torch transformers
+# Optional: P2 cross-model OCR (Tesseract)
+#   winget install UB-Mannheim.TesseractOCR   (then)   pip install pytesseract
+# Optional: P1 attached mode (live browser capture via CDP)
+#   pip install playwright && playwright install chromium

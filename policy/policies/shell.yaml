@@ -1,0 +1,13 @@
+name: shell.policy
+action: shell
+risk: high
+sensitive_params: [target]
+requires: []
+no_evidence_verdict: ALLOW
+capability_requirements:
+  process: allowed
+fallback:
+  trusted: ALLOW
+  untrusted: BLOCK
+  unknown: BLOCK
+  conflict: BLOCK

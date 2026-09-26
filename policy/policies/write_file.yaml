@@ -1,0 +1,13 @@
+name: write_file.policy
+action: write_file
+risk: medium
+sensitive_params: [target]
+requires: []
+no_evidence_verdict: ALLOW
+path_globs:
+  field: filesystem_write
+fallback:
+  trusted: ALLOW
+  untrusted: CONFIRM
+  unknown: BLOCK
+  conflict: BLOCK
