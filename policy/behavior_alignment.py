@@ -41,6 +41,16 @@ def check_behavior_alignment(expected: ExpectedEffect, actual: ActualEffect,
     violations: List[str] = []
     caps = capability or {}
 
+    # 0. change 5: UNKNOWN effect. When the actual effect could NOT be
+    #    determined and the operation is sensitive (a sink / high-risk), do NOT
+    #    silently treat it as "no violation" — flag it (-> BLOCK via authorize).
+    #    Ordinary read-only ops with unknown effect may pass through.
+    if actual.unknown:
+        if _is_sensitive(caps):
+            violations.append("unknown_effect")
+        # non-sensitive unknown: no violation, but also no positive checks
+        return {"aligned": len(violations) == 0, "violations": violations}
+
     # 1. tool constraint
     if expected.tool and expected.tool != actual.tool:
         violations.append("tool_mismatch")
@@ -82,3 +92,17 @@ def check_behavior_alignment(expected: ExpectedEffect, actual: ActualEffect,
             violations.append(f"forbidden_effect:{effect}")
 
     return {"aligned": len(violations) == 0, "violations": violations}
+
+
+def _is_sensitive(capability: Optional[Dict]) -> bool:
+    """A sensitive operation is a data sink (data leaves the domain) or a
+    high-risk effect (credential/process). Used to decide whether an UNKNOWN
+    effect must be escalated."""
+    caps = capability or {}
+    if caps.get("network_egress") == "allowed" or caps.get("external_share") == "allowed":
+        return True
+    return (caps.get("network") == "allowed"
+            or caps.get("credential") == "allowed"
+            or caps.get("credential_access") == "allowed"
+            or caps.get("process") == "allowed"
+            or caps.get("persistence") == "allowed")

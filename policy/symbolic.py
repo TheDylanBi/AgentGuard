@@ -85,7 +85,9 @@ def canonicalize(value):
 
 
 def _canon(value):
-    return canonicalize(value)
+    # Authorization must preserve executor semantics. URL percent-decoding or
+    # lowercasing a command/path can turn a different operation into a match.
+    return value
 
 
 def predicate_holds(pred: Dict[str, Any], fields: Dict[str, Any]) -> bool:
@@ -198,6 +200,26 @@ def normalize_sensitive_fields(sensitive_list) -> List[str]:
             out.append(p)
         else:
             out.append("payload." + p)
+    return out
+
+
+def validate_rules(rules: List[dict], capability: Optional[Dict] = None) -> List[dict]:
+    """Deterministic validation: LLM-proposed rules -> effective rules.
+
+    The intent LLM only PROPOSES rules; it is not trusted. Only rules whose
+    ``tool`` is DECLARED in the trusted capability envelope (or the wildcard
+    ``*``) are kept. Rules for undeclared tools are dropped — the LLM cannot
+    grant authorization for a tool the capability does not declare. If no
+    capability is present, rules pass through unchanged (cannot validate).
+    """
+    declared = set((capability or {}).get("actions") or [])
+    if not declared:
+        return list(rules or [])
+    out = []
+    for r in (rules or []):
+        tool = r.get("tool", "*")
+        if tool == "*" or tool in declared:
+            out.append(r)
     return out
 
 
@@ -460,6 +482,26 @@ def predicate_fields(pred: Dict[str, Any]) -> set:
         return out
     f = pred.get("field")
     return {f} if f else set()
+
+
+def constrained_fields(pred: Dict[str, Any]) -> set:
+    """Fields with positive finite constraints on EVERY accepting branch.
+
+    OR takes intersection, AND takes union. NOT/inequality/contains/glob do
+    not establish a finite authorization set and require explicit approval.
+    """
+    if not isinstance(pred, dict):
+        return set()
+    op, args = pred.get("op"), pred.get("args", [])
+    if op == "and":
+        return set().union(*(constrained_fields(a) for a in args))
+    if op == "or":
+        return set.intersection(*(constrained_fields(a) for a in args)) if args else set()
+    if op == "eq" and pred.get("value") is not None and pred.get("field"):
+        return {pred["field"]}
+    if op == "in" and isinstance(pred.get("value"), list) and pred["value"] and pred.get("field"):
+        return {pred["field"]}
+    return set()
 
 
 def rules_cover(action_type: str, rules: List[dict]) -> bool:

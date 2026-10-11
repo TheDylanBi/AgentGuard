@@ -44,7 +44,7 @@ def test_extract():
 def test_alignment():
     print("\n[check_behavior_alignment]")
     caps = {"effect_type": "external_communication", "target_type": "recipient",
-            "sources": ["PII"]}
+            "sources": ["PII"], "external_share": "allowed"}
 
     intent = {
         "allowed_recipients": ["alice@company.com"],
@@ -81,7 +81,8 @@ def test_alignment():
     check("quantity_exceeded", "quantity_exceeded" in r["violations"], str(r))
 
     # forbidden effect
-    caps4 = {"effect_type": "financial_transfer", "target_type": "recipient", "sources": ["financial"]}
+    caps4 = {"effect_type": "financial_transfer", "target_type": "recipient", "sources": ["financial"],
+             "external_share": "allowed"}
     expected = build_expected_effect(intent, caps4, "bank_manager_pay_bill")
     actual = extract_actual_effect("bank_manager_pay_bill", "pay",
                                    {"payee_id": "P-123", "amount": 100}, caps4)
@@ -90,7 +91,8 @@ def test_alignment():
           "forbidden_effect:financial_transfer" in r["violations"], str(r))
 
     # target out of scope
-    caps5 = {"effect_type": "network_navigation", "target_type": "url", "sources": []}
+    caps5 = {"effect_type": "network_navigation", "target_type": "url", "sources": [],
+             "network_egress": "allowed"}
     intent5 = {"allowed_targets": ["https://internal.example.com"], "forbidden_effects": []}
     expected = build_expected_effect(intent5, caps5, "web_browser_navigate_to")
     actual = extract_actual_effect("web_browser_navigate_to", "https://evil.com", {}, caps5)

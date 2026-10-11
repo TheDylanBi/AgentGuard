@@ -26,16 +26,19 @@ IMG_DIR = DATA / "images"
 
 
 def run_sample(client: ICBGuardClient, s: dict):
+    admin = ICBGuardClient(GATEWAY, token=os.environ["ICB_ADMIN_TOKEN"])
+    intent_client = ICBGuardClient(GATEWAY, token=os.environ["ICB_INTENT_TOKEN"])
+    intent_client.anchor_intent(s["intent_anchor"], session_id=s["id"])
     cert_id = None
     reg = s.get("register")
     if reg:
-        cert_id = client.register_tool(
+        cert_id = admin.register_tool(
             s["tool_id"], reg["capabilities"],
             implementation_hash=reg.get("implementation_hash"),
         )
     re_reg = s.get("re_register")
     if re_reg:
-        cert_id = client.register_tool(
+        cert_id = admin.register_tool(
             s["tool_id"], re_reg["capabilities"],
             implementation_hash=re_reg.get("implementation_hash"),
             force=True,
@@ -63,6 +66,7 @@ def run_sample(client: ICBGuardClient, s: dict):
         "reason": r.reason,
         "ground_truth": s["ground_truth"],
         "expected": s["expected_failure_point"],
+        "decision_rule": r.decision_rule,
         "latency_ms": round(dt * 1000, 1),
         "ok": (s["category"] == "attack" and r.verdict != "ALLOW")
               or (s["category"] == "benign" and r.verdict == "ALLOW"),
@@ -126,7 +130,7 @@ def main():
     attribution = {}
     for x in attacks:
         if x["verdict"] != "ALLOW":
-            attribution[x["expected"]] = attribution.get(x["expected"], 0) + 1
+            attribution[x["decision_rule"]] = attribution.get(x["decision_rule"], 0) + 1
 
     slipped = [x["id"] for x in attacks if x["verdict"] == "ALLOW"]
 
@@ -141,9 +145,9 @@ def main():
     print()
 
     print(f"attacks: {len(attacks)}   benign: {len(benign)}")
-    print(f"ASR (attack success rate)    = {asr * 100:.1f}%  "
+    print(f"Unsafe request allow rate    = {asr * 100:.1f}%  "
           f"({sum(1 for x in attacks if x['verdict'] == 'ALLOW')}/{len(attacks)} got through)")
-    print(f"Defense rate                 = {(1 - asr) * 100:.1f}%")
+    print(f"Unsafe request intervention rate                 = {(1 - asr) * 100:.1f}%")
     print(f"FPR (benign wrongly blocked) = {fpr * 100:.1f}%")
     print(f"Avg latency                  = {avg_lat:.1f} ms")
     print()
@@ -157,8 +161,11 @@ def main():
     metrics = {
         "attacks": len(attacks),
         "benign": len(benign),
-        "asr": round(asr, 4),
-        "defense_rate": round(1 - asr, 4),
+        "allow_rate_unsafe": round(asr, 4),
+        "intervention_rate_unsafe": round(1 - asr, 4),
+        "attack_success_rate": None,
+        "executed": False,
+        "confirm_rate_safe": sum(x["verdict"] == "CONFIRM" for x in benign) / max(len(benign), 1),
         "fpr": round(fpr, 4),
         "avg_latency_ms": round(avg_lat, 1),
     }

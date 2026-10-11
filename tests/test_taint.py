@@ -84,7 +84,7 @@ def test_engine():
         return SimpleNamespace(type="send", target="send", payload={"content": content})
 
     r = eng.evaluate(A("hello world"), "unknown", 0, capability=caps, rules=rules)
-    check("clean sink -> ALLOW", r["verdict"] == "ALLOW", str(r))
+    check("unbounded content requires review", r["verdict"] == "CONFIRM", str(r))
 
     r = eng.evaluate(A("~/.ssh/id_rsa"), "unknown", 0, capability=caps, rules=rules,
                      taint_state={"tainted_objects": ["~/.ssh/id_rsa"], "dirty": True})

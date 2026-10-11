@@ -8,6 +8,9 @@ import hashlib
 import io
 import json
 import os
+import uuid
+import copy
+import inspect
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -40,6 +43,8 @@ class AuthorizeResult:
     policy_update: Optional[dict] = None
     # P4 TOCTOU binding: hash over the exact authorized action.
     decision_id: Optional[str] = None
+    execution_ticket: Optional[str] = None
+    request: Optional[dict] = None
 
     @property
     def allowed(self) -> bool:
@@ -75,10 +80,21 @@ def _img_to_b64(img) -> Optional[str]:
 
 
 class ICBGuardClient:
-    def __init__(self, gateway_url: str = "http://127.0.0.1:8099", timeout: int = 120):
+    def __init__(self, gateway_url: str = "http://127.0.0.1:8099", timeout: int = 120,
+                 token: str = ""):
         self.gateway_url = gateway_url.rstrip("/")
         self.timeout = timeout
         self._cert_cache: Dict[str, str] = {}
+        # P0-2: shared-secret token for the mutating endpoints.
+        self._token = token or os.environ.get("ICB_EXECUTOR_TOKEN", "")
+        self.session_id = uuid.uuid4().hex
+
+    def _auth_headers(self) -> Dict[str, str]:
+        return {"Authorization": f"Bearer {self._token}"} if self._token else {}
+
+    def use_capability(self, tool_id: str, certificate_id: str):
+        """Attach an administrator-provisioned grant to this executor client."""
+        self._cert_cache[tool_id] = certificate_id
 
     # ---- registration ----
     def register_tool(
@@ -99,7 +115,8 @@ class ICBGuardClient:
             "implementation_version": implementation_version,
             "implementation_hash": implementation_hash,
         }
-        r = requests.post(f"{self.gateway_url}/register_tool", json=req, timeout=self.timeout)
+        r = requests.post(f"{self.gateway_url}/register_tool", json=req, timeout=self.timeout,
+                         headers=self._auth_headers())
         r.raise_for_status()
         cert = r.json()
         self._cert_cache[tool_id] = cert["capability_cert_id"]
@@ -119,9 +136,10 @@ class ICBGuardClient:
         previous_screenshot=None,
         previous_screenshot_path=None,
         previous_a11y_snapshot: Optional[List[dict]] = None,
-        session_id: str = "sdk-session",
+        session_id: Optional[str] = None,
         payload: Optional[Dict[str, Any]] = None,
         intent_profile: Optional[dict] = None,
+        approval_ticket: Optional[str] = None,
     ) -> AuthorizeResult:
         cert_id = capability_cert_id or self._cert_cache.get(tool_id)
 
@@ -140,7 +158,7 @@ class ICBGuardClient:
             vs["previous_a11y_snapshot"] = previous_a11y_snapshot
 
         req = {
-            "session_id": session_id,
+            "session_id": session_id or self.session_id,
             "intent_anchor": {"text": intent, "signer": "session-bound"},
             "tool": {"tool_id": tool_id, "capability_cert_id": cert_id},
             "action": {"type": action_type, "target": target, "payload": payload or {}},
@@ -148,7 +166,10 @@ class ICBGuardClient:
         }
         if intent_profile:
             req["intent_profile"] = intent_profile
-        r = requests.post(f"{self.gateway_url}/authorize", json=req, timeout=self.timeout)
+        if approval_ticket:
+            req["approval_ticket"] = approval_ticket
+        r = requests.post(f"{self.gateway_url}/authorize", json=req, timeout=self.timeout,
+                         headers=self._auth_headers())
         r.raise_for_status()
         d = r.json()
         return AuthorizeResult(
@@ -159,6 +180,8 @@ class ICBGuardClient:
             confirm_token=d.get("confirm_token"),
             policy_update=d.get("policy_update"),
             decision_id=d.get("decision_id"),
+            execution_ticket=d.get("execution_ticket"),
+            request=req,
         )
 
     # ---- confirmation ----
@@ -167,16 +190,18 @@ class ICBGuardClient:
             f"{self.gateway_url}/confirm",
             json={"token": token, "approve": approve},
             timeout=self.timeout,
+            headers=self._auth_headers(),
         )
         r.raise_for_status()
         return r.json()
 
     # ---- intent anchoring (方案C) ----
-    def anchor_intent(self, prompt: str, session_id: str = "sdk") -> dict:
+    def anchor_intent(self, prompt: str, session_id: Optional[str] = None) -> dict:
         r = requests.post(
             f"{self.gateway_url}/anchor_intent",
-            json={"session_id": session_id, "prompt": prompt},
+            json={"session_id": session_id or self.session_id, "prompt": prompt},
             timeout=self.timeout,
+            headers=self._auth_headers(),
         )
         r.raise_for_status()
         return r.json()["profile"]
@@ -194,7 +219,7 @@ class ICBGuardClient:
     ) -> AuthorizeResult:
         cert_id = capability_cert_id or self._cert_cache.get(tool_id)
         req = {
-            "session_id": "sdk-session",
+            "session_id": self.session_id,
             "intent_anchor": {"text": intent, "signer": "session-bound"},
             "tool": {"tool_id": tool_id, "capability_cert_id": cert_id},
             "action": {"type": action_type, "target": target, "payload": {}},
@@ -202,7 +227,8 @@ class ICBGuardClient:
         }
         if intent_profile:
             req["intent_profile"] = intent_profile
-        r = requests.post(f"{self.gateway_url}/authorize", json=req, timeout=self.timeout)
+        r = requests.post(f"{self.gateway_url}/authorize", json=req, timeout=self.timeout,
+                         headers=self._auth_headers())
         r.raise_for_status()
         d = r.json()
         return AuthorizeResult(
@@ -213,7 +239,23 @@ class ICBGuardClient:
             confirm_token=d.get("confirm_token"),
             policy_update=d.get("policy_update"),
             decision_id=d.get("decision_id"),
+            execution_ticket=d.get("execution_ticket"),
+            request=req,
         )
+
+    def consume(self, result: AuthorizeResult) -> dict:
+        if not result.allowed or not result.execution_ticket or not result.request:
+            raise AuthorizationBlocked("Missing execution authorization", result)
+        req = result.request
+        response = requests.post(f"{self.gateway_url}/consume", json={
+            "ticket": result.execution_ticket, "session_id": req["session_id"],
+            "tool": req["tool"], "action": req["action"],
+        }, headers=self._auth_headers(), timeout=self.timeout)
+        response.raise_for_status()
+        data = response.json()
+        if data.get("status") != "consumed":
+            raise AuthorizationBlocked("Execution ticket rejected", result)
+        return data
 
     def health(self) -> dict:
         return requests.get(f"{self.gateway_url}/health", timeout=10).json()
@@ -243,34 +285,37 @@ def guard(
             nonlocal cert_id
             if capabilities is not None and cert_id is None:
                 cert_id = client.register_tool(tool_id, capabilities)
-            target = target_from(args, kwargs) if target_from else (
-                args[0] if args else kwargs.get("target", "")
+            # Freeze the values that will actually be executed. Non-JSON inputs
+            # require a dedicated typed adapter; never hash their str()/repr().
+            signature = inspect.signature(fn)
+            bound = signature.bind(*args, **kwargs)
+            bound.apply_defaults()
+            bound.arguments = copy.deepcopy(bound.arguments)
+            frozen_args, frozen_kwargs = bound.args, bound.kwargs
+            arguments = dict(bound.arguments)
+            for name, parameter in signature.parameters.items():
+                if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+                    extras = arguments.pop(name, {})
+                    if set(extras) & set(arguments):
+                        raise AuthorizationBlocked("Ambiguous tool argument names")
+                    arguments.update(extras)
+            json.dumps(arguments, allow_nan=False)
+            target = target_from(frozen_args, frozen_kwargs) if target_from else (
+                frozen_args[0] if frozen_args else frozen_kwargs.get("target", "")
             )
             it = intent_provider() if intent_provider else intent
-            # P2 TOCTOU: capture the action hash BEFORE authorization; re-check
-            # it AFTER, right before executing, so an action changed between
-            # check and use is blocked.
-            before = hashlib.sha256(
-                json.dumps({"args": str(args), "kwargs": str(kwargs)},
-                           sort_keys=True).encode("utf-8")
-            ).hexdigest()
             result = client.authorize(
-                tool_id, action_type, str(target), it,
+                tool_id, action_type, str(target), it, payload=arguments,
                 capability_cert_id=cert_id,
                 screenshot=screenshot, screenshot_path=screenshot_path,
                 a11y_snapshot=a11y_snapshot,
             )
-            if result.blocked:
-                raise AuthorizationBlocked(result.reason, result)
             if result.needs_confirm:
                 raise AuthorizationNeedsConfirm(result.confirm_token, result)
-            after = hashlib.sha256(
-                json.dumps({"args": str(args), "kwargs": str(kwargs)},
-                           sort_keys=True).encode("utf-8")
-            ).hexdigest()
-            if after != before:
-                raise AuthorizationBlocked("TOCTOU: action changed after authorization", result)
-            return fn(*args, **kwargs)
+            if not result.allowed:
+                raise AuthorizationBlocked(result.reason, result)
+            client.consume(result)
+            return fn(*frozen_args, **frozen_kwargs)
 
         return wrapper
 

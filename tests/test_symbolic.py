@@ -217,7 +217,7 @@ def test_engine():
     r = eng.evaluate(A("notes", "read", {"note_id": "n2"}), "unknown", 0, capability=notes_caps,
                      rules=[{"tool": "notes", "decision": "allow",
                              "predicate": {"op": "eq", "field": "payload.note_id", "value": "n1"}}])
-    _check("non-sink outside -> CONFIRM", r["verdict"] == "CONFIRM" and "policy_update" in r, str(r))
+    _check("non-sink outside -> CONFIRM", r["verdict"] == "CONFIRM" and "policy_update" not in r, str(r))
 
     # P3: non-sink type-level allow -> CONFIRM (under-constrained)
     r = eng.evaluate(A("notes", "read", {"note_id": "n1"}), "unknown", 0, capability=notes_caps,
@@ -235,24 +235,24 @@ def test_engine():
                   "filesystem_read": [], "filesystem_write": []}
     r = eng.evaluate(A("shell", "sudo rm -rf /"), "unknown", 0, capability=shell_caps, rules=[])
     _check("P1 shell + no rules -> BLOCK", r["verdict"] == "BLOCK", str(r))
-    read_caps = {"actions": ["read_file"], "filesystem_read": ["/workspace/*"],
+    read_caps = {"actions": ["read_file"], "filesystem_read": [str(ROOT / "workspace") + "/*"],
                  "network": "denied", "credential": "denied", "process": "denied",
                  "persistence": "denied"}
-    r = eng.evaluate(A("read_file", "/workspace/a.txt"), "unknown", 0, capability=read_caps, rules=[])
+    r = eng.evaluate(A("read_file", str(ROOT / "workspace" / "a.txt")), "unknown", 0, capability=read_caps, rules=[])
     _check("P1 read_file + no rules -> CONFIRM", r["verdict"] == "CONFIRM", str(r))
 
     # monotonic confinement via non-sink expansion
     base = [{"tool": "notes", "decision": "allow",
              "predicate": {"op": "eq", "field": "payload.note_id", "value": "n1"}}]
     r = eng.evaluate(A("notes", "read", {"note_id": "n2"}), "unknown", 0, capability=notes_caps, rules=base)
-    update = r["policy_update"]["rule"]
+    update = symbolic.make_minimal_allow_rule("notes", _fields("notes", "read", {"note_id": "n2"}))
     r2 = eng.evaluate(A("notes", "read", {"note_id": "n2"}), "unknown", 0, capability=notes_caps,
                       rules=symbolic.apply_update(base, update))
     _check("non-sink expansion applied -> ALLOW", r2["verdict"] == "ALLOW", str(r2))
 
     # P1: path envelope violation -> BLOCK (hard capability boundary)
     r = eng.evaluate(A("read_file", "/etc/passwd"), "unknown", 0,
-                     capability={"actions": ["read_file"], "filesystem_read": ["/workspace/*"],
+                     capability={"actions": ["read_file"], "filesystem_read": [str(ROOT / "workspace") + "/*"],
                                  "network": "denied", "credential": "denied", "process": "denied",
                                  "persistence": "denied"},
                      rules=[{"tool": "read_file", "decision": "allow",
@@ -261,37 +261,13 @@ def test_engine():
 
 
 def test_canonicalization():
-    """Attack 1 defense: case / percent-encoding / Unicode aliases."""
-    import unicodedata
+    """Authorization preserves case and encoding; taint may overapproximate."""
     from policy import taint
-
-    print("\n[canonicalization]")
-    f = _fields("email", "send", {"to": "ALICE@Company.com"})
-    _check("eq case-insensitive",
-           symbolic.predicate_holds({"op": "eq", "field": "payload.to", "value": "alice@company.com"}, f))
-
-    f = _fields("email", "send", {"to": "alice%40company.com"})
-    _check("eq percent-decode",
-           symbolic.predicate_holds({"op": "eq", "field": "payload.to", "value": "alice@company.com"}, f))
-
-    nfd = unicodedata.normalize("NFD", "café")
-    f = _fields("email", "send", {"to": nfd})
-    _check("eq Unicode NFC/NFD",
-           symbolic.predicate_holds({"op": "eq", "field": "payload.to", "value": "café"}, f))
-
-    f = _fields("read_file", "%2fetc%2fpasswd")
-    _check("deny eq catches encoded path",
-           symbolic.predicate_holds({"op": "eq", "field": "target", "value": "/etc/passwd"}, f))
-
-    f = _fields("shell", "RM -RF /")
-    _check("contains case-insensitive",
-           symbolic.predicate_holds({"op": "contains", "field": "target", "value": "rm -rf"}, f))
-
-    # canonicalization applies to object-ID matching: percent-encoded path
-    # EXACTLY matches the canonical object id (not substring/derived).
+    for left, right in [("echo A", "echo a"), ("/a/b", "/a%2fb"), ("café", "cafe\u0301")]:
+        _check("distinct executor inputs do not share authorization",
+               not symbolic.predicate_holds({"op": "eq", "field": "target", "value": left}, {"target": right}))
     a = SimpleNamespace(type="send", target="send", payload={"attachment": "~%2f.ssh%2fid_rsa"})
-    _check("taint references canonicalized",
-           taint.references_tainted(a, ["~/.ssh/id_rsa"]) == "~/.ssh/id_rsa")
+    _check("taint conservatively canonicalizes references", taint.references_tainted(a, ["~/.ssh/id_rsa"]) == "~/.ssh/id_rsa")
 
 
 def main():

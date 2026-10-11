@@ -38,10 +38,23 @@ def _field(text: str, key: str) -> Optional[str]:
 def _balanced_braces(s: str, start: int) -> Optional[str]:
     """Return the balanced ``{...}`` substring beginning at ``start``."""
     depth = 0
+    quote = None
+    escaped = False
     for i in range(start, len(s)):
-        if s[i] == "{":
+        char = s[i]
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in ("'", '"'):
+            quote = char
+        elif char == "{":
             depth += 1
-        elif s[i] == "}":
+        elif char == "}":
             depth -= 1
             if depth == 0:
                 return s[start:i + 1]
@@ -85,6 +98,8 @@ def _target_of(tool: str, args: Dict[str, Any]) -> str:
 
 def parse_action(raw) -> List[Tuple[str, str, Dict[str, Any]]]:
     """Parse one agent action string -> list of (tool, target, payload)."""
+    if isinstance(raw, dict):
+        raw = json.dumps(raw, ensure_ascii=False)
     if not raw or not isinstance(raw, str):
         return []
     s = raw.strip()
@@ -100,9 +115,10 @@ def parse_action(raw) -> List[Tuple[str, str, Dict[str, Any]]]:
 
     # 2) write_to_file -> write_file
     if re.search(r"\bwrite_to_file\s*:", s):
-        fn = _field(s, "filename")
-        if fn:
-            return [("write_file", fn, {"filename": fn})]
+        start = s.find("{")
+        args = _parse_args(_balanced_braces(s, start)) if start >= 0 else None
+        if args and args.get("filename"):
+            return [("write_file", str(args["filename"]), args)]
         return []
 
     # 3) TerminalExecute -> shell
@@ -143,7 +159,7 @@ def parse_action(raw) -> List[Tuple[str, str, Dict[str, Any]]]:
     # 7) {"ToolName": {...}}
     if s.startswith("{"):
         b = _balanced_braces(s, 0)
-        d = json.loads(b) if b else None
+        d = _parse_args(b) if b else None
         if isinstance(d, dict) and len(d) == 1:
             tool, args = next(iter(d.items()))
             if isinstance(args, dict):

@@ -38,7 +38,12 @@ def _extract_values(payload: Optional[Dict], keys: List[str]) -> List[str]:
 def extract_actual_effect(tool: str, target: str, payload: Optional[Dict],
                           capability: Optional[Dict] = None,
                           taint_state: Optional[Dict] = None) -> ActualEffect:
-    """Extract the ACTUAL effect of a tool call from its arguments."""
+    """Extract the ACTUAL effect of a tool call from its arguments.
+
+    change 5: if the effect CANNOT be determined (no effect schema AND no
+    explicit recipient key matched), ``unknown`` is set True so the caller can
+    escalate instead of silently treating it as "no violation".
+    """
     caps = capability or {}
     target_type = caps.get("target_type")
     recipients = _extract_values(payload, _TARGET_KEYS.get(target_type or "", []))
@@ -50,6 +55,8 @@ def extract_actual_effect(tool: str, target: str, payload: Optional[Dict],
     effect_type = caps.get("effect_type")
     side_effects = [effect_type] if effect_type else []
 
+    unknown = (effect_type is None) and not recipients
+
     return ActualEffect(
         tool=tool,
         target=str(target),
@@ -57,4 +64,5 @@ def extract_actual_effect(tool: str, target: str, payload: Optional[Dict],
         data_sources=[str(s) for s in (caps.get("sources") or [])],
         recipients=recipients,
         side_effects=side_effects,
+        unknown=unknown,
     )

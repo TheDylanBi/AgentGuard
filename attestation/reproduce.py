@@ -18,6 +18,9 @@ def reproduce(certificate_id: str) -> dict:
     entry = log.get(certificate_id)
     if entry is None:
         return {"status": "NOT_FOUND", "id": certificate_id}
+    if "request" not in entry:
+        return {"status": "INPUT_NOT_RETAINED", "id": certificate_id,
+                "reason": "Privacy-preserving audit does not retain raw visual inputs"}
 
     # Imported lazily to avoid a heavy import when only inspecting the log.
     from gateway.server import compute_evidence_payload, context_from_visual_state

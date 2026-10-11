@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1200" viewBox="0 0 1800 1200">
+<rect x="0" y="0" width="1800" height="1200" rx="0" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.3"/>
+<text x="40" y="48" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="700" fill="#32668C">ICB-GUARD</text>
+<text x="40" y="88" font-family="Times New Roman,serif" font-size="33" font-weight="700" fill="#172B3A">Authorization lifecycle: approval, one-time consumption, and state revocation</text>
+<text x="40" y="119" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#566875">ALLOW is permission to request execution consumption; the signed evidence certificate itself is not an execution token</text>
+<text x="1650" y="48" font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="700" fill="#566875">FIGURE 3</text>
+<text x="40" y="166" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#32668C">(a)  SINGLE-ACTION APPROVAL AND EXECUTION</text>
+<rect x="40" y="187" width="400" height="185" rx="8" fill="#EDF4F9" stroke="#32668C" stroke-width="1.3"/>
+<text x="57" y="217" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#32668C">1  /authorize</text>
+<text x="57" y="245" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Executor submits full bound request.</text>
+<text x="57" y="269" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">All hard checks run.</text>
+<text x="57" y="293" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">BLOCK: stop.</text>
+<text x="57" y="317" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">ALLOW: issue execution ticket.</text>
+<text x="57" y="341" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">CONFIRM: create pending token.</text>
+<rect x="480" y="187" width="400" height="185" rx="8" fill="#FCF5E8" stroke="#A66B1B" stroke-width="1.3"/>
+<text x="497" y="217" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#A66B1B">2  /confirm</text>
+<text x="497" y="245" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Independent approver accepts / rejects.</text>
+<text x="497" y="269" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Pop pending token; verify expiry (300 s default),</text>
+<text x="497" y="293" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">epoch and context hash.</text>
+<text x="497" y="317" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Accept: issue one-use approval ticket. Reject /</text>
+<text x="497" y="341" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">stale: no grant.</text>
+<rect x="920" y="187" width="400" height="185" rx="8" fill="#FCF5E8" stroke="#A66B1B" stroke-width="1.3"/>
+<text x="937" y="217" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#A66B1B">3  /authorize + approval ticket</text>
+<text x="937" y="245" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Pop approval ticket; verify identical session, tool</text>
+<text x="937" y="269" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">and complete action.</text>
+<text x="937" y="293" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Re-run hard checks.</text>
+<text x="937" y="317" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Only a resulting CONFIRM may be converted to</text>
+<text x="937" y="341" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">ALLOW.</text>
+<rect x="1360" y="187" width="400" height="185" rx="8" fill="#EDF7F3" stroke="#24796F" stroke-width="1.3"/>
+<text x="1377" y="217" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#24796F">4  Execution ticket</text>
+<text x="1377" y="245" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Server-held random token; 30 s TTL.</text>
+<text x="1377" y="269" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Bind action/tool/session, epoch,</text>
+<text x="1377" y="293" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">policy/taint/effects context hash, evidence hash</text>
+<text x="1377" y="317" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">and original request.</text>
+<polyline points="440,279 480,279" fill="none" stroke="#A66B1B" stroke-width="1.8"/>
+<polygon points="480,279 470.0,275.0 470.0,283.0" fill="#A66B1B"/>
+<polyline points="880,279 920,279" fill="none" stroke="#A66B1B" stroke-width="1.8"/>
+<polygon points="920,279 910.0,275.0 910.0,283.0" fill="#A66B1B"/>
+<polyline points="1320,279 1360,279" fill="none" stroke="#24796F" stroke-width="1.8"/>
+<polygon points="1360,279 1350.0,275.0 1350.0,283.0" fill="#24796F"/>
+<polyline points="240,372 240,404 1560,404 1560,372" fill="none" stroke="#24796F" stroke-width="1.8"/>
+<polygon points="1560,372 1556.0,382.0 1564.0,382.0" fill="#24796F"/>
+<text x="598" y="398" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#24796F">Direct ALLOW skips human approval</text>
+<rect x="40" y="450" width="565" height="205" rx="8" fill="#EDF4F9" stroke="#32668C" stroke-width="1.3"/>
+<text x="57" y="480" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#32668C">5  /consume: pop first, then revalidate</text>
+<text x="57" y="508" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Executor role; serialized one-time ticket consumption.</text>
+<text x="57" y="532" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Check TTL, epoch, context hash and complete binding.</text>
+<text x="57" y="556" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Re-authorize stored request with current capability / policy / taint and</text>
+<text x="57" y="580" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">newly computed evidence.</text>
+<text x="57" y="604" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Require ALLOW and unchanged evidence hash; otherwise refuse</text>
+<text x="57" y="628" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">execution.</text>
+<rect x="645" y="450" width="520" height="205" rx="8" fill="#EDF7F3" stroke="#24796F" stroke-width="1.3"/>
+<text x="662" y="480" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#24796F">6  State update + audit</text>
+<text x="662" y="508" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">If tool is a high-risk source, mark session taint before returning</text>
+<text x="662" y="532" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">success. Failed reads may over-taint.</text>
+<text x="662" y="556" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Append signed consumption event.</text>
+<text x="662" y="580" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Replay of consumed ticket fails. SDK proceeds only after a</text>
+<text x="662" y="604" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">successful response.</text>
+<rect x="1205" y="450" width="555" height="205" rx="8" fill="#FCF5E8" stroke="#A66B1B" stroke-width="1.3"/>
+<text x="1222" y="480" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#A66B1B">7  Trusted executor invokes tool</text>
+<text x="1222" y="508" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Execute the frozen arguments checked by the gateway.</text>
+<text x="1222" y="532" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">External boundary: process/file/network permissions must prevent</text>
+<text x="1222" y="556" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">alternate access paths.</text>
+<text x="1222" y="580" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">No atomic OS-level coupling to /consume; mutable resources still</text>
+<text x="1222" y="604" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">need executor-side protection.</text>
+<polyline points="1760,307 1780,307 1780,431 322,431 322,450" fill="none" stroke="#24796F" stroke-width="1.8"/>
+<polygon points="322,450 326.0,440.0 318.0,440.0" fill="#24796F"/>
+<polyline points="605,552 645,552" fill="none" stroke="#32668C" stroke-width="1.8"/>
+<polygon points="645,552 635.0,548.0 635.0,556.0" fill="#32668C"/>
+<polyline points="1165,552 1205,552" fill="none" stroke="#24796F" stroke-width="1.8"/>
+<polygon points="1205,552 1195.0,548.0 1195.0,556.0" fill="#24796F"/>
+<text x="40" y="704" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#32668C">(b)  REVOCATION, AUDIT AND DEPLOYMENT GUARDS</text>
+<rect x="40" y="725" width="555" height="200" rx="8" fill="#EDF4F9" stroke="#32668C" stroke-width="1.3"/>
+<text x="57" y="755" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#32668C">Session / tool transitions</text>
+<text x="57" y="783" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">New intent: increment epoch, replace rules, reset effects and</text>
+<text x="57" y="807" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">confirmation budget; retain taint.</text>
+<text x="57" y="831" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Close session: clear policy, effects, taint and all tickets.</text>
+<text x="57" y="855" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">New registration invalidates old capability. Changed implementation</text>
+<text x="57" y="879" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">converts an ALLOW to CONFIRM.</text>
+<rect x="615" y="725" width="550" height="200" rx="8" fill="#EDF4F9" stroke="#32668C" stroke-width="1.3"/>
+<text x="632" y="755" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#32668C">Approval and resource bounds</text>
+<text x="632" y="783" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Default budget: 10 confirmations per epoch; exceeding it yields</text>
+<text x="632" y="807" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">BLOCK.</text>
+<text x="632" y="831" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Ticket maps: 10,000-entry guard each. Anchored sessions:</text>
+<text x="632" y="855" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">1,000-entry guard.</text>
+<text x="632" y="879" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">One mutation lock; one worker. Restart invalidates in-memory</text>
+<text x="632" y="903" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">grants.</text>
+<rect x="1185" y="725" width="575" height="200" rx="8" fill="#EDF7F3" stroke="#24796F" stroke-width="1.3"/>
+<text x="1202" y="755" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#24796F">Audit and credential separation</text>
+<text x="1202" y="783" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Ed25519-signed hash chain for recorded decisions, approvals and</text>
+<text x="1202" y="807" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">consumption. Invalid chain stops append.</text>
+<text x="1202" y="831" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Four distinct credentials (at least 32 characters). Agent must not hold</text>
+<text x="1202" y="855" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">privileged tokens. Protect gateway code, keys and state with OS</text>
+<text x="1202" y="879" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">permissions.</text>
+<rect x="40" y="941" width="1720" height="179" rx="8" fill="#FCF5E8" stroke="#A66B1B" stroke-width="1.3" stroke-dasharray="6 4"/>
+<text x="58" y="972" font-family="Arial,Helvetica,sans-serif" font-size="18" font-weight="700" fill="#A66B1B">IMPLEMENTATION SCOPE / DO NOT INTERPRET AS ADDITIONAL ENFORCEMENT</text>
+<text x="58" y="1003" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">Single trusted deployment domain; user/tenant-to-session authorization is not implemented. Host shell and declared arbitrary process execution are blocked in production.</text>
+<text x="58" y="1028" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">Capability implementation_hash records a declared identity; it is not a measurement of the executing binary. Parameter constraints metadata is not a generic hard validator.</text>
+<text x="58" y="1053" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">Hash chains need external checkpoints to detect suffix deletion. Derived taint may be approved; no complete cross-session or transformed-content lineage is claimed.</text>
+<text x="58" y="1078" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">pi browser/click/type demo tools are authorization previews. R-Judge policy-assisted judgment is an evaluation path, not part of the runtime authorization chain.</text>
+<text x="40" y="1172" font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="400" fill="#566875">Based on the current repository implementation. All numeric limits shown are defaults; deployment configuration may change configurable limits.</text>
+</svg>

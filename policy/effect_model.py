@@ -34,19 +34,57 @@ class ActualEffect:
     data_sources: List[str] = field(default_factory=list)
     recipients: List[str] = field(default_factory=list)
     side_effects: List[str] = field(default_factory=list)
+    # change 5: True when the effect could NOT be determined (no effect schema
+    # and no recipients extracted). Sensitive/sink ops with unknown effect must
+    # NOT default to "no violation".
+    unknown: bool = False
+
+
+# effect_type -> the capability flag that authorizes it. If the flag is NOT
+# "allowed", the effect is ALWAYS forbidden (a poisoned LLM cannot remove it).
+_EFFECT_CAP_FLAG = {
+    "credential_access": "credential_access",
+    "network_navigation": "network_egress",
+    "external_communication": "external_share",
+    "financial_transfer": "external_share",
+    "share": "external_share",
+    "physical_action": "external_share",
+    "arbitrary_process_execution": "process",
+}
+
+
+def _capability_forbidden_effects(capability: Optional[Dict]) -> set:
+    """Effects the CAPABILITY hard-denies (operator-declared, trusted).
+
+    These are ALWAYS forbidden in the Expected effect, so a poisoned / wrong
+    intent LLM cannot EXPAND the expected effect beyond the capability
+    (change 3: ``Expected ⊆ Capability``).
+    """
+    caps = capability or {}
+    forbidden = set()
+    for effect, flag in _EFFECT_CAP_FLAG.items():
+        if caps.get(flag, "denied") != "allowed":
+            forbidden.add(effect)
+    return forbidden
 
 
 def build_expected_effect(intent_profile: Optional[Dict], capability: Optional[Dict],
                           tool: str) -> ExpectedEffect:
     """Derive the ExpectedEffect for a tool from the (trajectory-free) intent
-    profile. The intent profile is global per task; the capability only carries
-    the tool's static effect schema (effect_type/target_type)."""
+    profile, CONSTRAINED by the capability (change 3).
+
+    ``forbidden_effects`` = LLM's forbidden effects ∪ capability-denied effects.
+    The capability part is hard/trusted; the LLM part can only RESTRICT further,
+    never EXPAND the expected effect.
+    """
     ip = intent_profile or {}
+    forbidden = set(str(x) for x in (ip.get("forbidden_effects") or []))
+    forbidden |= _capability_forbidden_effects(capability)
     return ExpectedEffect(
         tool=tool,
         allowed_targets=[str(x) for x in (ip.get("allowed_targets") or [])],
         allowed_recipients=[str(x) for x in (ip.get("allowed_recipients") or [])],
         allowed_data_types=[str(x) for x in (ip.get("allowed_data_types") or [])],
         max_items=ip.get("max_items") if isinstance(ip.get("max_items"), int) else None,
-        forbidden_effects=[str(x) for x in (ip.get("forbidden_effects") or [])],
+        forbidden_effects=list(forbidden),
     )

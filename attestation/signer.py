@@ -8,10 +8,11 @@ from cryptography.hazmat.primitives.asymmetric import ed25519
 
 
 class Signer:
-    def __init__(self, private_key_path, public_key_path):
+    def __init__(self, private_key_path, public_key_path, allow_create=True):
         self.private_key_path = Path(private_key_path)
         self.public_key_path = Path(public_key_path)
         self._key = None
+        self.allow_create = allow_create
 
     def _load_or_create(self):
         if self._key is not None:
@@ -21,6 +22,8 @@ class Signer:
                 self.private_key_path.read_bytes(), password=None
             )
         else:
+            if not self.allow_create:
+                raise RuntimeError("Signing key must be provisioned outside the agent workspace")
             self.private_key_path.parent.mkdir(parents=True, exist_ok=True)
             self._key = ed25519.Ed25519PrivateKey.generate()
             self.private_key_path.write_bytes(

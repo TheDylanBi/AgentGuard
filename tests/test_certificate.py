@@ -5,6 +5,8 @@ Unit-level (no gateway): exercises the engine's trust root directly.
     python tests/test_certificate.py
 """
 import sys
+import tempfile
+import atexit
 import time as _time
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,7 +16,11 @@ sys.path.insert(0, str(ROOT))
 
 from policy.engine import PolicyEngine
 from attestation.signer import Signer
-from gateway.config import PRIVATE_KEY_PATH, PUBLIC_KEY_PATH
+from attestation.hashing import object_hash
+_TEST_KEYS = tempfile.TemporaryDirectory(prefix="icb-cert-test-")
+atexit.register(_TEST_KEYS.cleanup)
+PRIVATE_KEY_PATH = Path(_TEST_KEYS.name) / "key.pem"
+PUBLIC_KEY_PATH = Path(_TEST_KEYS.name) / "key.pub"
 
 _PASS = 0
 _FAIL = 0
@@ -42,11 +48,19 @@ def test_signer_verify():
 def test_certificate():
     signer = Signer(PRIVATE_KEY_PATH, PUBLIC_KEY_PATH)
     eng = PolicyEngine(str(ROOT / "policy" / "policies"))
+    original_evaluate = eng.evaluate
+    def evaluate(*args, **kwargs):
+        kwargs.setdefault("rules", [{"tool": "click", "decision": "allow", "predicate": {"op": "eq", "field": "target", "value": "Log In"}}])
+        return original_evaluate(*args, **kwargs)
+    eng.evaluate = evaluate
 
     def make_cert(trust, action_type, action_target, expires=None, sig_ok=True):
         payload = {
             "predicate": f"UI_ELEMENT(target={action_target!r})",
             "trust": trust,
+            "action_type": action_type, "action_target": action_target,
+            "action_hash": object_hash({"type": action_type, "target": action_target, "payload": {}}),
+            "expires_at": expires if expires is not None else int(_time.time()) + 300,
             "sources": [{"type": "a11y_tree", "verifier": "a11y-tree-1.0.0", "confidence": 0.99}],
         }
         sig = signer.sign(payload) if sig_ok else "ed25519:AAAA"
@@ -114,7 +128,7 @@ def test_certificate():
 
     # 7. no certificate -> fall back to caller trust (backward compat)
     r = eng.evaluate(action, "trusted", 0, capability=caps)
-    check("no cert -> caller trust (backward compat)", r["verdict"] == "ALLOW", str(r))
+    check("no certificate is rejected", r["verdict"] == "BLOCK", str(r))
 
 
 def main():

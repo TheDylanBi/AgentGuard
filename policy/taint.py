@@ -24,14 +24,15 @@ HIGH_RISK_SOURCES = {
 
 def is_source(capability: Optional[Dict]) -> bool:
     """A source READS high-risk data (declared in the capability envelope)."""
-    return bool((capability or {}).get("sources"))
+    caps = capability or {}
+    return bool(caps.get("sources")) or caps.get("credential_access") == "allowed" or caps.get("credential") == "allowed"
 
 
 def is_sink(capability: Optional[Dict]) -> bool:
     """A sink lets data LEAVE the security domain (effect-based)."""
     caps = capability or {}
-    if "network_egress" in caps or "external_share" in caps:
-        return caps.get("network_egress") == "allowed" or caps.get("external_share") == "allowed"
+    if caps.get("network_egress") == "allowed" or caps.get("external_share") == "allowed":
+        return True
     return caps.get("network") == "allowed" or caps.get("persistence") == "allowed"
 
 

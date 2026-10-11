@@ -1,7 +1,7 @@
 name: write_file.policy
 action: write_file
 risk: medium
-sensitive_params: [target]
+sensitive_params: [target, payload.content, payload.oldText, payload.newText]
 requires: []
 no_evidence_verdict: ALLOW
 path_globs:

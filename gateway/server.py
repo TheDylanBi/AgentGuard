@@ -14,8 +14,12 @@ import base64
 import io
 import os
 import time
+import secrets
+import threading
+from functools import wraps
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from PIL import Image
 
 from attestation.hashing import crop_hash, object_hash
@@ -31,10 +35,9 @@ from gateway.api_schema import (
     CapabilityCertificate,
     Certificate,
     ConfirmRequest,
+    ConsumeRequest,
     EvidenceSource,
     IntentProfile,
-    PolicyRule,
-    PolicyUpdate,
     ToolRegistrationRequest,
 )
 from gateway.config import (
@@ -50,16 +53,16 @@ from gateway.config import (
     REQUIRE_CAPABILITY,
     TEXT_MATCH_THRESHOLD,
 )
+from gateway import config
+from gateway.security import require_executor, require_admin, require_intent, require_approver
 from policy.capability_registry import CapabilityRegistry
 from policy.engine import PolicyEngine
 from policy.intent_anchor import (
-    analyze_action_intent_consistency,
     analyze_command_danger,
     anchor_effect_llm,
     anchor_intent,
     intent_llm_configured,
 )
-from policy import symbolic
 from policy import taint
 from policy.authorize import authorize_action
 from verifiers.a11y_tree import A11yTreeVerifier
@@ -68,7 +71,23 @@ from verifiers.grounding import GroundingVerifier
 from verifiers.ocr import OCRVerifier
 from verifiers.tesseract import TesseractVerifier
 
-app = FastAPI(title="ICB-Guard Gateway", version="0.4.0")
+@asynccontextmanager
+async def lifespan(app):
+    config.validate_security_config()
+    yield
+
+
+app = FastAPI(title="ICB-Guard Gateway", version="0.5.0", lifespan=lifespan)
+STATE_LOCK = threading.RLock()
+
+
+def serialized(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        with STATE_LOCK:
+            return fn(*args, **kwargs)
+    return wrapper
+
 
 ocr_verifier = OCRVerifier(
     text_match_threshold=TEXT_MATCH_THRESHOLD,
@@ -78,7 +97,7 @@ tesseract_verifier = TesseractVerifier()
 grounding_verifier = GroundingVerifier()
 a11y_verifier = A11yTreeVerifier()
 
-signer = Signer(PRIVATE_KEY_PATH, PUBLIC_KEY_PATH)
+signer = Signer(PRIVATE_KEY_PATH, PUBLIC_KEY_PATH, allow_create=config.DEV_MODE)
 policy_engine = PolicyEngine(POLICY_DIR)
 capability_registry = CapabilityRegistry(signer)
 registry = VerifierRegistry({
@@ -87,7 +106,7 @@ registry = VerifierRegistry({
     "grounding": grounding_verifier,
     "a11y_tree": a11y_verifier,
 })
-log = CertificateLog(CERTIFICATE_LOG_PATH)
+log = CertificateLog(CERTIFICATE_LOG_PATH, signer=signer)
 
 # Offline demo shim: when neither GroundingDINO nor Tesseract is available,
 # ICB_MOCK_GROUNDING=1 simulates an independent perceptual source at the OCR
@@ -100,9 +119,11 @@ STABILITY_OVERLAP = 0.3
 
 # P4: pending human confirmations (token -> payload)
 PENDING_CONFIRMS = {}
+APPROVAL_TICKETS = {}
+EXECUTION_TICKETS = {}
 
 # Progent-style runtime policy evolution: session_id -> latest intent profile
-# (server-owned; /anchor_intent seeds it, approved expansions update it).
+# (server-owned; only the trusted intent endpoint replaces it).
 SESSION_POLICIES = {}
 
 # Per-session epoch, bumped on every /anchor_intent. Pending confirm tokens
@@ -112,62 +133,55 @@ SESSION_POLICIES = {}
 SESSION_EPOCHS = {}
 
 # P5 lightweight taint state, keyed by session: which high-risk objects have
-# been READ this turn. Reset on every re-anchor (data flow is turn-scoped).
+# been read this session. Retained across user turns until session closure.
 SESSION_TAINT = {}
 
 # P6 behavior-alignment intent-effect profiles, keyed by session. Reset on
 # every re-anchor (intent is turn-scoped).
 SESSION_EFFECTS = {}
 
-# Item-7 escalation budget (minimal): per-session CONFIRM counter. When the
-# counter exceeds the threshold, low-risk CONFIRMs auto-downgrade to ALLOW
-# (audited) so human attention is reserved for high-risk actions.
+# Approval flooding pauses the session; it never relaxes authorization.
 SESSION_CONFIRM_BUDGET = {}
 CONFIRM_BUDGET_THRESHOLD = int(os.environ.get("ICB_CONFIRM_BUDGET", "10"))
 
 
 def _reset_session_policy(session_id: str, profile_dict: dict) -> None:
-    """Revoke-on-new-input + item-8 incremental anchoring.
-
-    Security boundary (kept): the INTENT-DERIVED LLM rules are REPLACED every
-    turn, so old permissions cannot be abused by a later turn's injection.
-
-    Item-8 (added): FEEDBACK-LOOP rules (item 7's learned approvals/denials,
-    tagged ``reason = "feedback loop ..."``) SURVIVE across turns, so the user
-    is not re-asked for the same class of operation. Taint also persists (a
-    high-risk read keeps affecting later sinks until session end).
-    """
+    """Replace turn permissions; taint survives until explicit session closure."""
     SESSION_EPOCHS[session_id] = SESSION_EPOCHS.get(session_id, 0) + 1
-    old = SESSION_POLICIES.get(session_id, {})
-    fb_rules = [r for r in (old.get("rules") or [])
-                if str(r.get("reason", "")).startswith("feedback loop")]
-    profile_dict["rules"] = list(profile_dict.get("rules") or []) + fb_rules
     SESSION_POLICIES[session_id] = profile_dict
     # taint persists across turns (item 8); effects + budget stay turn-scoped
     SESSION_EFFECTS.pop(session_id, None)
     SESSION_CONFIRM_BUDGET.pop(session_id, None)
 
 
-def _apply_policy_update(session_id: str, update: dict) -> bool:
-    """Merge an approved expansion rule into the session's symbolic policy."""
-    st = SESSION_POLICIES.get(session_id)
-    new_rule = (update or {}).get("rule")
-    if st is None or not isinstance(new_rule, dict):
-        return False
-    st["rules"] = symbolic.apply_update(st.get("rules", []), new_rule)
-    return True
+def _binding(req):
+    return object_hash({"session_id": req.session_id, "tool": req.tool.model_dump(),
+                        "action": req.action.model_dump()})
 
 
-def _issue_confirm_token(session_id: str, certificate_id: str, policy_update=None) -> str:
-    payload = {
-        "session_id": session_id,
-        "certificate_id": certificate_id,
-        "expires_at": int(time.time()) + CONFIRM_TTL,
-        "policy_update": policy_update,
-        "epoch": SESSION_EPOCHS.get(session_id, 0),
-    }
-    token = signer.sign(payload)
-    PENDING_CONFIRMS[token] = payload
+def _context_version(session_id):
+    return object_hash({"policy": SESSION_POLICIES.get(session_id),
+                        "taint": SESSION_TAINT.get(session_id),
+                        "effects": SESSION_EFFECTS.get(session_id)})
+
+
+def _cleanup_tickets():
+    now = time.time()
+    for mapping in (PENDING_CONFIRMS, APPROVAL_TICKETS, EXECUTION_TICKETS):
+        for token in list(mapping):
+            if mapping[token]["expires_at"] <= now:
+                mapping.pop(token, None)
+        if len(mapping) >= 10000:
+            raise HTTPException(429, "Too many pending requests")
+
+
+def _issue_confirm_token(req):
+    _cleanup_tickets()
+    token = secrets.token_urlsafe(32)
+    PENDING_CONFIRMS[token] = {"session_id": req.session_id, "binding": _binding(req),
+        "request": req.model_dump(), "epoch": SESSION_EPOCHS.get(req.session_id, 0),
+        "context_version": _context_version(req.session_id),
+        "expires_at": time.time() + CONFIRM_TTL}
     return token
 
 
@@ -188,11 +202,7 @@ def _verify_evidence_certificate(cert: dict):
 
 
 def _decision_id(action, capability_cert_id, certificate_id, session_id, intent_text):
-    """P4 TOCTOU binding: a decision hash over the exact authorized action.
-
-    The executor must re-hash the action it is about to run and compare it to
-    this id; a mismatch means the action changed after authorization (TOCTOU).
-    """
+    """Audit identifier; execution authority is the one-time server-owned ticket."""
     payload = {
         "action_type": action.type,
         "action_target": action.target,
@@ -229,12 +239,16 @@ def context_from_visual_state(vs: dict) -> VisualContext:
     prev_snapshot = vs.get("previous_a11y_snapshot") or None
     cdp = vs.get("cdp_endpoint")
 
-    if vs.get("mode") == "attached" and cdp:
+    if vs.get("mode") == "attached":
+        if not cdp or cdp not in config.CDP_ENDPOINTS:
+            raise HTTPException(403, "Unregistered browser endpoint")
         from browser.capture import capture_attached
 
         cap_image, cap_snapshot = capture_attached(cdp)
-        image = image or cap_image
-        snapshot = snapshot or cap_snapshot
+        image = cap_image
+        snapshot = cap_snapshot
+        prev_image = None
+        prev_snapshot = None
 
     return VisualContext(
         image=image,
@@ -358,25 +372,53 @@ def health():
     }
 
 
-@app.get("/certificates")
+@app.get("/certificates", dependencies=[Depends(require_admin)])
 def list_certificates():
     return {"ids": log.ids(), "chain": log.verify_chain()}
 
 
-@app.get("/certificates/{certificate_id}")
+@app.get("/certificates/{certificate_id}", dependencies=[Depends(require_admin)])
 def get_certificate(certificate_id: str):
     entry = log.get(certificate_id)
     return entry if entry is not None else {"error": "not found", "id": certificate_id}
 
 
-@app.post("/register_tool", response_model=CapabilityCertificate)
+@app.post("/register_tool", response_model=CapabilityCertificate, dependencies=[Depends(require_admin)])
+@serialized
 def register_tool(req: ToolRegistrationRequest):
-    return capability_registry.register(req)
+    try:
+        return capability_registry.register(req)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
-@app.post("/anchor_intent", response_model=AnchorIntentResponse)
+@app.delete("/tools/{tool_id}", dependencies=[Depends(require_admin)])
+@serialized
+def revoke_tool(tool_id: str):
+    capability_registry._by_tool.pop(tool_id, None)
+    return {"status": "revoked"}
+
+
+@app.delete("/sessions/{session_id}", dependencies=[Depends(require_intent)])
+@serialized
+def close_session(session_id: str):
+    for mapping in (PENDING_CONFIRMS, APPROVAL_TICKETS, EXECUTION_TICKETS):
+        for token in list(mapping):
+            if mapping[token]["session_id"] == session_id:
+                mapping.pop(token, None)
+    for mapping in (SESSION_POLICIES, SESSION_EFFECTS, SESSION_TAINT, SESSION_EPOCHS, SESSION_CONFIRM_BUDGET):
+        mapping.pop(session_id, None)
+    return {"status": "closed"}
+
+
+@app.post("/anchor_intent", response_model=AnchorIntentResponse, dependencies=[Depends(require_intent)])
+@serialized
 def anchor_intent_endpoint(req: AnchorIntentRequest):
     """Parse the user's prompt into a signed IntentProfile (方案 C)."""
+    if req.session_id not in SESSION_POLICIES and len(SESSION_POLICIES) >= 1000:
+        raise HTTPException(429, "Session limit reached")
+    # Revoke first, including when the intent service fails.
+    _reset_session_policy(req.session_id, {"intent_text": req.prompt, "rules": []})
     profile_dict = anchor_intent(req.prompt)
     profile = IntentProfile(intent_text=req.prompt, **profile_dict)
     payload = profile.model_dump(exclude={"signature"})
@@ -384,7 +426,7 @@ def anchor_intent_endpoint(req: AnchorIntentRequest):
     # Revoke-on-new-input: REPLACE the session policy and bump the epoch, so
     # prior rules + prior approved expansions + prior pending confirm tokens
     # all die on this new user input (multi-turn intent-inflation guard).
-    _reset_session_policy(req.session_id, profile.model_dump())
+    SESSION_POLICIES[req.session_id] = profile.model_dump()
     # P6: generate the intent-EFFECT profile (trajectory-free) for Behavior
     # Alignment. Failure is non-fatal: behavior alignment simply degrades to
     # the P0-P5 engine alone.
@@ -395,9 +437,11 @@ def anchor_intent_endpoint(req: AnchorIntentRequest):
     return AnchorIntentResponse(profile=profile)
 
 
-@app.get("/browser_state")
+@app.get("/browser_state", dependencies=[Depends(require_executor)])
 def browser_state(cdp: str = "http://localhost:9222"):
     """Return the live page's title + interactive a11y elements (no screenshot)."""
+    if cdp not in config.CDP_ENDPOINTS:
+        raise HTTPException(403, "Unregistered browser endpoint")
     try:
         from browser.capture import capture_a11y
         return capture_a11y(cdp)
@@ -405,56 +449,96 @@ def browser_state(cdp: str = "http://localhost:9222"):
         return {"title": "", "elements": [], "error": str(e)}
 
 
-@app.post("/confirm")
+@app.post("/confirm", dependencies=[Depends(require_approver)])
+@serialized
 def confirm(req: ConfirmRequest):
-    payload = PENDING_CONFIRMS.get(req.token)
+    payload = PENDING_CONFIRMS.pop(req.token, None)
     if payload is None:
-        return {"status": "invalid", "reason": "unknown or used token"}
-    if payload["expires_at"] < int(time.time()):
-        PENDING_CONFIRMS.pop(req.token, None)
+        return {"status": "invalid"}
+    if payload["expires_at"] <= time.time():
         return {"status": "expired"}
-
-    session_id = payload["session_id"]
-    # Stale-token guard: a new /anchor_intent bumps the epoch, revoking the
-    # policy this approval belongs to. Never apply an old turn's approval to
-    # the new turn's policy.
-    stale = payload.get("epoch", -1) != SESSION_EPOCHS.get(session_id, 0)
-    if stale:
-        PENDING_CONFIRMS.pop(req.token, None)
-        return {"status": "stale", "reason": "policy was re-anchored; this approval no longer applies"}
-
+    if payload["epoch"] != SESSION_EPOCHS.get(payload["session_id"], 0):
+        return {"status": "stale"}
+    if payload["context_version"] != _context_version(payload["session_id"]):
+        return {"status": "stale"}
+    log.append({"id": "approval:" + secrets.token_hex(16), "event": "approval",
+                "approved": req.approve, "binding": payload["binding"],
+                "session_id": payload["session_id"], "epoch": payload["epoch"],
+                "timestamp": int(time.time())})
     if not req.approve:
-        # Item-7 feedback loop (rejection): generalize into a NARROWING deny
-        # rule (same pinned sensitive params, decision flipped), SMT-verified,
-        # so the same class of action is not asked again.
-        pu = payload.get("policy_update")
-        if pu and pu.get("rule"):
-            deny_rule = dict(pu["rule"])
-            deny_rule["decision"] = "deny"
-            deny_rule["reason"] = "feedback loop: rejected -> narrowing deny"
-            current = SESSION_POLICIES.get(session_id, {}).get("rules", [])
-            if symbolic.classify_update(deny_rule, current) == "narrowing":
-                _apply_policy_update(session_id, {"rule": deny_rule, "classification": "narrowing"})
-        PENDING_CONFIRMS.pop(req.token, None)
-        return {"status": "denied", "learned": "deny_rule"}
-
-    # Approval: apply the generalized expansion rule (item-7 feedback loop).
-    if payload.get("policy_update"):
-        _apply_policy_update(session_id, payload["policy_update"])
-    ticket = signer.sign({"approved": payload, "at": int(time.time())})
-    PENDING_CONFIRMS.pop(req.token, None)
-    return {"status": "approved", "ticket": ticket}
+        return {"status": "denied"}
+    _cleanup_tickets()
+    ticket = secrets.token_urlsafe(32)
+    APPROVAL_TICKETS[ticket] = payload
+    return {"status": "approved", "ticket": ticket, "scope": "single_action"}
 
 
-@app.post("/authorize", response_model=AuthorizeResponse)
+@app.post("/consume", dependencies=[Depends(require_executor)])
+@serialized
+def consume(req: ConsumeRequest):
+    entry = EXECUTION_TICKETS.pop(req.ticket, None)
+    if (not entry or entry["expires_at"] <= time.time()
+            or entry["epoch"] != SESSION_EPOCHS.get(req.session_id, 0)
+            or entry["context_version"] != _context_version(req.session_id)
+            or entry["binding"] != _binding(req)):
+        raise HTTPException(403, "Invalid, expired, revoked or already consumed execution ticket")
+    original = AuthorizeRequest(**entry["request"])
+    # Re-evaluate hard boundaries, current capability, taint and live evidence.
+    result = _authorize(original, approved=entry["approved"], issue=False)
+    if result.verdict != "ALLOW":
+        raise HTTPException(403, "Authorization changed before execution")
+    evidence = result.certificates[0].payload
+    if object_hash({k: evidence.get(k) for k in ("trust", "crop_hash", "region", "roles", "sources")}) != entry["evidence_hash"]:
+        raise HTTPException(403, "Visual state changed before execution")
+    cert = capability_registry.verify(req.tool.capability_cert_id)
+    capability = cert["declared_capabilities"] if cert else None
+    # Conservatively taint before execution: a failed read can over-taint but
+    # a completed/partially completed read must never be missed.
+    if taint.is_source(capability):
+        st = SESSION_TAINT.setdefault(req.session_id, {"tainted_objects": [], "dirty": False})
+        taint.record_source_read(st, req.action.target, source=capability.get("sources", []))
+    log.append({"id": "execution:" + secrets.token_hex(16), "event": "execution_consumed",
+                "session_id": req.session_id, "binding": entry["binding"], "timestamp": int(time.time())})
+    return {"status": "consumed", "decision_id": result.decision_id}
+
+
+@app.post("/authorize", response_model=AuthorizeResponse, dependencies=[Depends(require_executor)])
+@serialized
 def authorize(req: AuthorizeRequest):
+    return _authorize(req)
+
+
+def _authorize(req: AuthorizeRequest, approved=False, issue=True):
+    if req.session_id not in SESSION_POLICIES:
+        raise HTTPException(403, "Intent must be anchored by the trusted user channel")
+    if issue:
+        _cleanup_tickets()
+    if req.approval_ticket and issue:
+        grant = APPROVAL_TICKETS.pop(req.approval_ticket, None)
+        if (not grant or grant["expires_at"] <= time.time()
+                or grant["epoch"] != SESSION_EPOCHS.get(req.session_id, 0)
+                or grant["context_version"] != _context_version(req.session_id)
+                or grant["binding"] != _binding(req)):
+            raise HTTPException(403, "Approval does not cover this action")
+        approved = True
+    # A host shell has no enforceable effect envelope. Production disables it;
+    # use a separately sandboxed executor before enabling process capabilities.
+    if req.action.type == "shell" and not config.DEV_MODE:
+        return AuthorizeResponse(verdict="BLOCK", reason="Host shell execution is disabled in production",
+                                 decision_rule="executor.sandbox.required")
     vs = req.visual_state.model_dump()
     ctx = context_from_visual_state(vs)
     target = req.action.target
 
     evidence = compute_evidence_payload(ctx, target)
 
-    cert_payload = {**evidence, "timestamp": int(time.time())}
+    if vs.get("mode") != "attached" and evidence["trust"] == "trusted":
+        evidence["trust"] = "untrusted"  # caller-origin evidence cannot establish provenance
+    cert_payload = {**evidence, "timestamp": int(time.time()),
+        "action_type": req.action.type, "action_target": target,
+        "action_hash": object_hash(req.action.model_dump()),
+        "session_id": req.session_id, "epoch": SESSION_EPOCHS.get(req.session_id, 0),
+        "expires_at": int(time.time()) + EVIDENCE_TTL}
     signature = signer.sign(cert_payload)
     certificate_id = object_hash(cert_payload)
 
@@ -474,7 +558,7 @@ def authorize(req: AuthorizeRequest):
         # P4 trust root: bind the certificate to the exact action it proves.
         action_type=req.action.type,
         action_target=target,
-        expires_at=int(time.time()) + EVIDENCE_TTL,
+        expires_at=cert_payload["expires_at"],
         payload=cert_payload,
     )
 
@@ -483,25 +567,15 @@ def authorize(req: AuthorizeRequest):
     re_registered = False
     capability_cert_id = req.tool.capability_cert_id
     if capability_cert_id:
-        cert = capability_registry.get(capability_cert_id)
+        cert = capability_registry.verify(capability_cert_id)  # signed & trusted (change 4)
         if cert and cert["tool_id"] == req.tool.tool_id:
             capability = cert["declared_capabilities"]
             re_registered = cert.get("re_registered", False)
 
-    # 方案 C: verify the signed intent profile (if provided). The server-side
-    # evolving policy is authoritative (Progent-style): approved expansions
-    # live there and must NOT be clobbered by a client re-passing its stale
-    # signed profile. The client profile only seeds the session policy once.
-    client_profile = None
-    if req.intent_profile is not None:
-        payload = req.intent_profile.model_dump(exclude={"signature"})
-        if req.intent_profile.signature and signer.sign(payload) == req.intent_profile.signature:
-            client_profile = req.intent_profile.model_dump()
-
-    if client_profile is not None and req.session_id not in SESSION_POLICIES:
-        SESSION_POLICIES[req.session_id] = client_profile
-
-    intent_profile = SESSION_POLICIES.get(req.session_id, client_profile)
+    intent_profile = SESSION_POLICIES[req.session_id]
+    if capability and capability.get("effect_type") == "arbitrary_process_execution" and not config.DEV_MODE:
+        return AuthorizeResponse(verdict="BLOCK", reason="Host process execution is disabled in production",
+                                 decision_rule="executor.sandbox.required")
 
     # Semantic command danger (P pillar): independent LLM proposes, gate enforces.
     llm_danger = None
@@ -511,17 +585,6 @@ def authorize(req: AuthorizeRequest):
         if danger:
             llm_danger = danger.get("dangerous")
             llm_reason = danger.get("reason")
-
-    # Semantic action-intent consistency (I pillar): LLM judges, gate enforces.
-    consistency = None
-    consistency_reason = None
-    if intent_llm_configured():
-        c = analyze_action_intent_consistency(
-            req.intent_anchor.text, req.action.type, req.action.target
-        )
-        if c:
-            consistency = c.get("consistent")
-            consistency_reason = c.get("reason")
 
     st = SESSION_TAINT.get(req.session_id)
     taint_state = (
@@ -539,25 +602,15 @@ def authorize(req: AuthorizeRequest):
         taint_state=taint_state,
         trust=evidence["trust"],
         evidence_count=evidence["consensus_count"],
-        intent_text=req.intent_anchor.text,
+        intent_text=intent_profile.get("intent_text", ""),
         intent_profile=intent_profile,
         certificate=certificate,
         certificate_verifier=_verify_evidence_certificate,
-        consistency=consistency,
-        consistency_reason=consistency_reason,
         llm_danger=llm_danger,
         llm_reason=llm_reason,
-        roles=evidence.get("roles", []),
         enable_rules=ENABLE_RULES,
         require_capability=REQUIRE_CAPABILITY,
     )
-
-    # P5: record a high-risk SOURCE read once it is actually authorized, so a
-    # later SINK in the same turn can be checked for taint flow.
-    if decision["verdict"] == "ALLOW" and taint.is_source(capability):
-        st = SESSION_TAINT.setdefault(req.session_id, {"tainted_objects": [], "dirty": False})
-        src = (capability or {}).get("sources", [])
-        taint.record_source_read(st, target, source=src)
 
     # P6: a re-registered tool (implementation hash changed) requires
     # re-verification, even if capability + intent + evidence all pass.
@@ -570,43 +623,30 @@ def authorize(req: AuthorizeRequest):
 
     confirm_token = None
     policy_update = None
-    if decision.get("policy_update"):
-        pu = decision["policy_update"]
-        policy_update = PolicyUpdate(
-            rule=PolicyRule(**pu["rule"]),
-            classification=pu.get("classification", "expansion"),
-            request_id=certificate_id,
-        )
-    if decision["verdict"] == "CONFIRM":
-        # Item-7 escalation budget (minimal): over threshold, low-risk CONFIRMs
-        # auto-downgrade to ALLOW (audited); high-risk (sink/taint) stays.
+    if approved and decision["verdict"] == "CONFIRM":
+        decision = {"verdict": "ALLOW", "reason": "Explicit single-action approval; hard checks passed",
+                    "rule": "approval.single_action"}
+    if decision["verdict"] == "CONFIRM" and issue:
         budget = SESSION_CONFIRM_BUDGET.setdefault(req.session_id, {"count": 0})
         budget["count"] += 1
-        high_risk = taint.is_sink(capability) or decision.get("rule") == "p5.taint"
-        if budget["count"] > CONFIRM_BUDGET_THRESHOLD and not high_risk:
-            decision = {
-                "verdict": "ALLOW",
-                "reason": "升级预算已用尽，低风险动作自动放行（审计）: " + decision["reason"],
-                "rule": "escalation.budget.allow",
-            }
+        if budget["count"] > CONFIRM_BUDGET_THRESHOLD:
+            decision = {"verdict": "BLOCK", "reason": "Confirmation budget exhausted",
+                        "rule": "escalation.budget.exhausted"}
         else:
-            confirm_token = _issue_confirm_token(
-                req.session_id,
-                certificate_id,
-                policy_update=policy_update.model_dump() if policy_update else None,
-            )
+            confirm_token = _issue_confirm_token(req)
 
-    # Append to the tamper-evident log (includes request + verifier snapshot
-    # so the certificate can be reproduced later).
+    # Keep decision metadata, not raw screenshots, request bodies or credentials.
     log.append({
         "id": certificate_id,
         "timestamp": cert_payload["timestamp"],
         "verdict": decision["verdict"],
-        "reason": decision["reason"],
+        "decision_rule": decision["rule"],
         "capability_cert_id": capability_cert_id,
-        "request": {"target": target, "visual_state": vs},
+        "session_id": req.session_id,
+        "action_hash": object_hash(req.action.model_dump()),
+        "request_hash": object_hash(req.model_dump(exclude={"approval_ticket"})),
         "verifiers": registry.snapshot(),
-        "evidence": evidence,
+        "evidence": {k: v for k, v in evidence.items() if k != "predicate"},
         "signature": signature,
     })
 
@@ -618,7 +658,17 @@ def authorize(req: AuthorizeRequest):
         req.action, capability_cert_id, certificate_id, req.session_id, req.intent_anchor.text
     )
 
+    execution_ticket = None
+    if decision["verdict"] == "ALLOW" and issue:
+        execution_ticket = secrets.token_urlsafe(32)
+        EXECUTION_TICKETS[execution_ticket] = {"session_id": req.session_id, "binding": _binding(req),
+            "epoch": SESSION_EPOCHS.get(req.session_id, 0), "approved": approved,
+            "context_version": _context_version(req.session_id),
+            "expires_at": time.time() + config.EXECUTION_TTL,
+            "request": req.model_dump(exclude={"approval_ticket"}),
+            "evidence_hash": object_hash({k: evidence.get(k) for k in ("trust", "crop_hash", "region", "roles", "sources")})}
     return AuthorizeResponse(
+        execution_ticket=execution_ticket,
         verdict=decision["verdict"],
         certificates=[certificate],
         reason=reason,

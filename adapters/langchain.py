@@ -6,7 +6,7 @@ Two integration styles:
 2. ``GuardedBaseTool`` — a LangChain ``BaseTool`` subclass, created lazily so
    this module imports cleanly even when langchain is not installed.
 """
-from .sdk import AuthorizationBlocked, AuthorizationNeedsConfirm, ICBGuardClient
+from .sdk import AuthorizationBlocked, AuthorizationNeedsConfirm, ICBGuardClient, guard
 
 
 class GuardedTool:
@@ -51,16 +51,19 @@ class GuardedTool:
         )
 
     def run(self, target: str, **kwargs):
-        result = self._authorize(target)
-        if result.blocked:
-            raise AuthorizationBlocked(result.reason, result)
-        if result.needs_confirm:
-            raise AuthorizationNeedsConfirm(result.confirm_token, result)
-        return self.fn(target, **kwargs)
+        wrapped = guard(self.client, self.tool_id, self.action_type,
+                        capabilities=self.capabilities, intent=self.intent,
+                        intent_provider=self.intent_provider, screenshot=self.screenshot,
+                        screenshot_path=self.screenshot_path, a11y_snapshot=self.a11y_snapshot,
+                        target_from=self.target_from)(self.fn)
+        return wrapped(target, **kwargs)
 
     def invoke(self, inputs):
-        target = inputs.get("target") or inputs.get("input") or ""
-        return self.run(target)
+        values = dict(inputs)
+        target = values.pop("target", None)
+        if target is None:
+            target = values.pop("input", "")
+        return self.run(target, **values)
 
     async def arun(self, target: str, **kwargs):
         return self.run(target, **kwargs)

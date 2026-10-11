@@ -4,9 +4,13 @@ This module is the single source of truth for the wire format. Every agent
 framework only needs to translate its native tool call into an
 ``AuthorizeRequest`` and read the ``AuthorizeResponse`` verdict.
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, model_validator
+
+
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
 class IntentAnchor(BaseModel):
@@ -21,8 +25,8 @@ class ToolRef(BaseModel):
     capability_cert_id: Optional[str] = None
 
 
-class Action(BaseModel):
-    type: str  # click | type | upload | shell | ...
+class Action(StrictModel):
+    type: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
     target: str  # human-readable target description
     payload: Dict[str, Any] = Field(default_factory=dict)
 
@@ -37,19 +41,19 @@ class A11yNode(BaseModel):
     confidence: Optional[float] = None
 
 
-class VisualState(BaseModel):
+class VisualState(StrictModel):
     # attached      -> gateway pulls evidence itself via cdp_endpoint (P1)
     # screenshot     -> agent sends the pixels
     # a11y_snapshot  -> agent sends a structured accessibility snapshot
     # Screenshot and a11y_snapshot may be combined; attached mode may
     # additionally fill both from a live browser.
-    mode: str = "screenshot"
-    screenshot_b64: Optional[str] = None
+    mode: Literal["screenshot", "a11y_snapshot", "attached"] = "screenshot"
+    screenshot_b64: Optional[str] = Field(default=None, max_length=8 * 1024 * 1024)
     cdp_endpoint: Optional[str] = None
-    a11y_snapshot: Optional[List[A11yNode]] = None
+    a11y_snapshot: Optional[List[A11yNode]] = Field(default=None, max_length=10000)
     # P2 cross-time consistency: a second capture at t-Δt.
-    previous_screenshot_b64: Optional[str] = None
-    previous_a11y_snapshot: Optional[List[A11yNode]] = None
+    previous_screenshot_b64: Optional[str] = Field(default=None, max_length=8 * 1024 * 1024)
+    previous_a11y_snapshot: Optional[List[A11yNode]] = Field(default=None, max_length=10000)
 
 
 class IntentProfile(BaseModel):
@@ -114,7 +118,7 @@ class AnchorIntentResponse(BaseModel):
     profile: IntentProfile
 
 
-class AuthorizeRequest(BaseModel):
+class AuthorizeRequest(StrictModel):
     session_id: str
     intent_anchor: IntentAnchor
     tool: ToolRef
@@ -123,9 +127,10 @@ class AuthorizeRequest(BaseModel):
     # Optional signed IntentProfile (方案 C). When present it replaces the
     # keyword-based intent matching; when absent the engine falls back.
     intent_profile: Optional["IntentProfile"] = None
+    approval_ticket: Optional[str] = None
 
 
-class CapabilityDeclaration(BaseModel):
+class CapabilityDeclaration(StrictModel):
     """The tool's declared Effect Envelope (P4)."""
 
     actions: List[str] = Field(default_factory=list)  # click | type | upload | read_file | shell | ...
@@ -145,6 +150,22 @@ class CapabilityDeclaration(BaseModel):
     external_share: str = "denied"    # denied | allowed -> send/post/upload/forward
     credential_access: str = "denied"  # denied | allowed -> reads credentials (source)
     sources: List[str] = Field(default_factory=list)  # credential | private_file | PII | financial
+    effect_type: Optional[str] = None
+    target_type: Optional[Literal["recipient", "path", "url", "process", "object"]] = None
+    parameter_constraints: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_flags(cls, value):
+        data = dict(value)
+        if "network_egress" not in data:
+            data["network_egress"] = data.get("network", "denied")
+        if "credential_access" not in data:
+            data["credential_access"] = data.get("credential", "denied")
+        for name in ("network", "credential", "process", "persistence", "network_egress", "external_share", "credential_access"):
+            if data.get(name, "denied") not in ("allowed", "denied"):
+                raise ValueError(f"Invalid capability flag: {name}")
+        return data
 
 
 class ToolRegistrationRequest(BaseModel):
@@ -166,11 +187,19 @@ class CapabilityCertificate(BaseModel):
     previous_hash: Optional[str] = None
     issued_at: int
     signature: str
+    registration_id: str = ""
 
 
-class ConfirmRequest(BaseModel):
+class ConfirmRequest(StrictModel):
     token: str
     approve: bool
+
+
+class ConsumeRequest(StrictModel):
+    ticket: str
+    session_id: str
+    tool: ToolRef
+    action: Action
 
 
 class EvidenceSource(BaseModel):
@@ -212,3 +241,4 @@ class AuthorizeResponse(BaseModel):
     # P4 TOCTOU binding: hash over the exact authorized action. The executor
     # must re-hash the action it runs and compare against this id.
     decision_id: Optional[str] = None
+    execution_ticket: Optional[str] = None

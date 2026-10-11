@@ -16,7 +16,7 @@ def _parse_action(action_str: str):
     parts = action_str.strip().split(maxsplit=1)
     action_type = parts[0] if parts else "click"
     if action_type not in _ACTION_TYPES:
-        action_type = "click"  # BrowserGym id-based actions map to click
+        raise AuthorizationBlocked("Unsupported browser action syntax")
     target = parts[1] if len(parts) > 1 else action_str.strip()
     return action_type, target
 
@@ -52,6 +52,7 @@ class GuardBrowserGymAction:
         result = self.client.authorize(
             self.tool_id, action_type, target, intent,
             capability_cert_id=self._cert_id,
+            payload={"action_str": action_str},
             screenshot=screenshot,
             a11y_snapshot=a11y,
         )
@@ -60,6 +61,9 @@ class GuardBrowserGymAction:
         if result.needs_confirm:
             raise AuthorizationNeedsConfirm(result.confirm_token, result)
 
+        if not result.allowed:
+            raise AuthorizationBlocked("Invalid authorization verdict", result)
         if self.action_fn is not None:
+            self.client.consume(result)
             return self.action_fn(action_str)
         return result

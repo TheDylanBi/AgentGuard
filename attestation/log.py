@@ -5,6 +5,7 @@ modification breaks the chain and can be detected. Entries also store the
 exact request + verifier snapshot needed to reproduce the certificate.
 """
 import json
+import threading
 from pathlib import Path
 from typing import List, Optional
 
@@ -12,8 +13,10 @@ from .hashing import object_hash
 
 
 class CertificateLog:
-    def __init__(self, path):
+    def __init__(self, path, signer=None):
         self.path = Path(path)
+        self.signer = signer
+        self._lock = threading.RLock()
 
     def _read_entries(self) -> List[dict]:
         if not self.path.exists():
@@ -27,7 +30,13 @@ class CertificateLog:
 
     def append(self, entry: dict) -> dict:
         """Append an entry, linking it to the previous one via a hash chain."""
+        with self._lock:
+            return self._append(entry)
+
+    def _append(self, entry: dict) -> dict:
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.verify_chain()["ok"]:
+            raise RuntimeError("Audit chain is invalid; refusing to extend it")
         entries = self._read_entries()
         prev_hash = entries[-1]["hash"] if entries else "genesis"
 
@@ -35,6 +44,8 @@ class CertificateLog:
         entry["prev_hash"] = prev_hash
         body = {k: v for k, v in entry.items() if k != "hash"}
         entry["hash"] = object_hash(body)
+        if self.signer:
+            entry["log_signature"] = self.signer.sign({"hash": entry["hash"]})
 
         with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n")
@@ -56,7 +67,9 @@ class CertificateLog:
             return {"ok": True, "entries": 0}
         prev = "genesis"
         for e in entries:
-            body = {k: v for k, v in e.items() if k != "hash"}
+            body = {k: v for k, v in e.items() if k not in ("hash", "log_signature")}
+            if self.signer and not self.signer.verify({"hash": e.get("hash")}, e.get("log_signature", "")):
+                return {"ok": False, "entries": len(entries), "reason": "invalid audit signature"}
             if body.get("prev_hash") != prev:
                 return {
                     "ok": False,

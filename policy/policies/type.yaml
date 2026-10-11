@@ -1,7 +1,7 @@
 name: type.policy
 action: type
 risk: medium
-sensitive_params: [target]
+sensitive_params: [target, payload.text]
 requires:
   - predicate: UI_ELEMENT
     min_trust: trusted
