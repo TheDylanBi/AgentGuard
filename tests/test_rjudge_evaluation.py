@@ -138,6 +138,18 @@ class RJudgeTests(unittest.TestCase):
             row = {"label": 1, "actions": [{"verdict": "ALLOW", "latency_ms": i} for i in range(1, 101)]}
             self.assertEqual(report([row], "test")["latency"]["p95_ms"], 95)
 
+    def test_policy_evidence_honors_independent_policy_with_intent_disabled(self):
+        from policy.engine import PolicyEngine
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "business.json"
+            path.write_text(json.dumps({"version": 1, "rules": [
+                {"id": "pause", "actions": ["read_file"], "mode": "deny"}]}), encoding="utf-8")
+            ex = example()
+            ex["contents"][0][1]["action"] = 'read_file: {"path":"/a"}'
+            result = policy_evidence(ex, enable_rules=False, enable_effects=False,
+                                     engine=PolicyEngine("policy/policies", path))
+            self.assertEqual(result["observations"][0]["rule"], "business.pause")
+
     def test_cli_exports_full_result_and_checkpoint(self):
         with tempfile.TemporaryDirectory() as root:
             data = Path(root) / "data"

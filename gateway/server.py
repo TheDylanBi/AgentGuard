@@ -65,6 +65,8 @@ from policy.intent_anchor import (
 )
 from policy import taint
 from policy.authorize import authorize_action
+from policy.action_feedback import make_feedback
+from execution.files import BoundFile, ResourceRejected, validate_action as validate_execution_action
 from verifiers.a11y_tree import A11yTreeVerifier
 from verifiers.base import Evidence, VisualContext
 from verifiers.grounding import GroundingVerifier
@@ -98,7 +100,7 @@ grounding_verifier = GroundingVerifier()
 a11y_verifier = A11yTreeVerifier()
 
 signer = Signer(PRIVATE_KEY_PATH, PUBLIC_KEY_PATH, allow_create=config.DEV_MODE)
-policy_engine = PolicyEngine(POLICY_DIR)
+policy_engine = PolicyEngine(POLICY_DIR, business_policy_path=config.BUSINESS_POLICY_PATH)
 capability_registry = CapabilityRegistry(signer)
 registry = VerifierRegistry({
     "ocr": ocr_verifier,
@@ -160,7 +162,8 @@ def _binding(req):
 
 
 def _context_version(session_id):
-    return object_hash({"policy": SESSION_POLICIES.get(session_id),
+    return object_hash({"business_policy": policy_engine.business_policy.fingerprint,
+                        "policy": SESSION_POLICIES.get(session_id),
                         "taint": SESSION_TAINT.get(session_id),
                         "effects": SESSION_EFFECTS.get(session_id)})
 
@@ -175,11 +178,12 @@ def _cleanup_tickets():
             raise HTTPException(429, "Too many pending requests")
 
 
-def _issue_confirm_token(req):
+def _issue_confirm_token(req, resource_binding=None):
     _cleanup_tickets()
     token = secrets.token_urlsafe(32)
     PENDING_CONFIRMS[token] = {"session_id": req.session_id, "binding": _binding(req),
-        "request": req.model_dump(), "epoch": SESSION_EPOCHS.get(req.session_id, 0),
+        "request": req.model_dump(), "resource_binding": resource_binding,
+        "epoch": SESSION_EPOCHS.get(req.session_id, 0),
         "context_version": _context_version(req.session_id),
         "expires_at": time.time() + CONFIRM_TTL}
     return token
@@ -361,6 +365,7 @@ def compute_evidence_payload(ctx: VisualContext, target: str) -> dict:
 def health():
     return {
         "status": "ok",
+        "execution_mode": "controlled" if config.controlled_execution_enabled() else "trusted-client",
         "ocr": ocr_verifier.available(),
         "tesseract": tesseract_verifier.available(),
         "grounding": grounding_verifier.available(),
@@ -476,12 +481,55 @@ def confirm(req: ConfirmRequest):
 @app.post("/consume", dependencies=[Depends(require_executor)])
 @serialized
 def consume(req: ConsumeRequest):
+    if config.controlled_execution_enabled():
+        raise HTTPException(403, "Client-side execution is disabled; use /execute")
+    return _consume(req, controlled=False)
+
+
+@app.post("/execute", dependencies=[Depends(require_executor)])
+@serialized
+def execute(req: ConsumeRequest):
+    if not config.controlled_execution_enabled():
+        raise HTTPException(403, "Controlled execution is not enabled")
+    return _consume(req, controlled=True)
+
+
+def _consume(req, controlled):
     entry = EXECUTION_TICKETS.pop(req.ticket, None)
     if (not entry or entry["expires_at"] <= time.time()
             or entry["epoch"] != SESSION_EPOCHS.get(req.session_id, 0)
             or entry["context_version"] != _context_version(req.session_id)
-            or entry["binding"] != _binding(req)):
+            or entry["binding"] != _binding(req)
+            or entry.get("execution_mode", "trusted-client") != ("controlled" if controlled else "trusted-client")):
         raise HTTPException(403, "Invalid, expired, revoked or already consumed execution ticket")
+    if not controlled:
+        return _check_consumption(req, entry)
+    # Acquire pinned handles before the final policy check; no mutation yet.
+    try:
+        bound = BoundFile(req.action, config.executor_protected_paths())
+    except (OSError, ValueError) as exc:
+        raise HTTPException(409, "Cannot bind controlled file resource") from exc
+    with bound:
+        if bound.binding != entry.get("resource_binding"):
+            raise HTTPException(409, "File identity or content changed; authorize again")
+        result = _check_consumption(req, entry)
+        execution_id = "controlled:" + secrets.token_hex(16)
+        metadata = {"session_id": req.session_id, "binding": entry["binding"],
+                    "resource_hash": object_hash(bound.binding), "execution_id": execution_id}
+        log.append({**metadata, "id": execution_id + ":started", "event": "execution_started",
+                    "timestamp": int(time.time())})
+        try:
+            output = bound.run()
+        except Exception as exc:
+            log.append({**metadata, "id": execution_id + ":failed", "event": "execution_failed",
+                        "timestamp": int(time.time()), "error_type": type(exc).__name__})
+            raise HTTPException(500, "Execution failed; effects may be partial; ticket cannot be retried") from exc
+        log.append({**metadata, "id": execution_id + ":completed", "event": "execution_completed",
+                    "timestamp": int(time.time())})
+        return {"status": "executed", "decision_id": result["decision_id"], "output": output}
+
+
+def _check_consumption(req, entry):
     original = AuthorizeRequest(**entry["request"])
     # Re-evaluate hard boundaries, current capability, taint and live evidence.
     result = _authorize(original, approved=entry["approved"], issue=False)
@@ -513,6 +561,7 @@ def _authorize(req: AuthorizeRequest, approved=False, issue=True):
         raise HTTPException(403, "Intent must be anchored by the trusted user channel")
     if issue:
         _cleanup_tickets()
+    grant = None
     if req.approval_ticket and issue:
         grant = APPROVAL_TICKETS.pop(req.approval_ticket, None)
         if (not grant or grant["expires_at"] <= time.time()
@@ -521,6 +570,13 @@ def _authorize(req: AuthorizeRequest, approved=False, issue=True):
                 or grant["binding"] != _binding(req)):
             raise HTTPException(403, "Approval does not cover this action")
         approved = True
+    controlled = config.controlled_execution_enabled()
+    if controlled:
+        try:
+            validate_execution_action(req.action)
+        except ResourceRejected as exc:
+            return AuthorizeResponse(verdict="BLOCK", reason=str(exc),
+                                     decision_rule="executor.unsupported", execution_mode="controlled")
     # A host shell has no enforceable effect envelope. Production disables it;
     # use a separately sandboxed executor before enabling process capabilities.
     if req.action.type == "shell" and not config.DEV_MODE:
@@ -623,6 +679,16 @@ def _authorize(req: AuthorizeRequest, approved=False, issue=True):
 
     confirm_token = None
     policy_update = None
+    resource_binding = None
+    if controlled and issue and decision["verdict"] != "BLOCK":
+        try:
+            with BoundFile(req.action, config.executor_protected_paths()) as bound:
+                resource_binding = bound.binding
+            if grant is not None and resource_binding != grant.get("resource_binding"):
+                raise ResourceRejected("Resource changed after approval")
+        except (OSError, ValueError):
+            decision = {"verdict": "BLOCK", "reason": "File resource unavailable, unsupported or changed after approval",
+                        "rule": "executor.resource"}
     if approved and decision["verdict"] == "CONFIRM":
         decision = {"verdict": "ALLOW", "reason": "Explicit single-action approval; hard checks passed",
                     "rule": "approval.single_action"}
@@ -633,7 +699,7 @@ def _authorize(req: AuthorizeRequest, approved=False, issue=True):
             decision = {"verdict": "BLOCK", "reason": "Confirmation budget exhausted",
                         "rule": "escalation.budget.exhausted"}
         else:
-            confirm_token = _issue_confirm_token(req)
+            confirm_token = _issue_confirm_token(req, resource_binding)
 
     # Keep decision metadata, not raw screenshots, request bodies or credentials.
     log.append({
@@ -641,6 +707,9 @@ def _authorize(req: AuthorizeRequest, approved=False, issue=True):
         "timestamp": cert_payload["timestamp"],
         "verdict": decision["verdict"],
         "decision_rule": decision["rule"],
+        "business_policy_hash": policy_engine.business_policy.fingerprint,
+        "execution_mode": "controlled" if controlled else "trusted-client",
+        "resource_hash": object_hash(resource_binding) if resource_binding is not None else None,
         "capability_cert_id": capability_cert_id,
         "session_id": req.session_id,
         "action_hash": object_hash(req.action.model_dump()),
@@ -662,12 +731,19 @@ def _authorize(req: AuthorizeRequest, approved=False, issue=True):
     if decision["verdict"] == "ALLOW" and issue:
         execution_ticket = secrets.token_urlsafe(32)
         EXECUTION_TICKETS[execution_ticket] = {"session_id": req.session_id, "binding": _binding(req),
+            "execution_mode": "controlled" if controlled else "trusted-client",
+            "resource_binding": resource_binding,
             "epoch": SESSION_EPOCHS.get(req.session_id, 0), "approved": approved,
             "context_version": _context_version(req.session_id),
             "expires_at": time.time() + config.EXECUTION_TTL,
             "request": req.model_dump(exclude={"approval_ticket"}),
             "evidence_hash": object_hash({k: evidence.get(k) for k in ("trust", "crop_hash", "region", "roles", "sources")})}
     return AuthorizeResponse(
+        execution_mode="controlled" if controlled else "trusted-client",
+        safety_feedback=(None if decision["verdict"] == "ALLOW" else make_feedback(
+            decision["verdict"], decision["rule"], has_allow=any(
+                r.get("tool") == req.action.type and r.get("decision") == "allow"
+                for r in intent_profile.get("rules", [])))),
         execution_ticket=execution_ticket,
         verdict=decision["verdict"],
         certificates=[certificate],

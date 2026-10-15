@@ -11,8 +11,21 @@ and no keyword intent patterns. Without the independent LLM the framework
 degrades to: declarative capability + a11y role verification + path envelope
 (no semantic judgment), rather than pretending keyword rules are semantics.
 """
+import hashlib
 import json
+import math
 import os
+import time
+from contextvars import ContextVar
+from .intent_output import (parse_final_json, IntentOutputError, RULES_SCHEMA,
+                            EFFECTS_SCHEMA, EFFECT_LISTS, DANGER_SCHEMA, rules_schema_for_tools)
+
+_CHAT_DIAGNOSTIC = ContextVar("intent_chat_diagnostic", default=None)
+
+
+def intent_request_diagnostic():
+    """Safe metadata only: never response text, URL, prompt, or credentials."""
+    return dict(_CHAT_DIAGNOSTIC.get() or {})
 
 # The old type-level intent fields are kept only for wire-compat; the actual
 # intent-vs-behavior check is P6 Behavior Alignment (anchor_effect_llm).
@@ -38,46 +51,135 @@ def _llm_config() -> dict:
     }
 
 
-def _chat(system: str, user: str, temperature: float = 0.0):
+def _chat(system: str, user: str, temperature: float = 0.0, *, output_schema=None):
     """One chat completion against the independent LLM. None on failure."""
     cfg = _llm_config()
+    diagnostic = {"status": "missing_key", "timeout_seconds": 30}
+    _CHAT_DIAGNOSTIC.set(diagnostic)
     if not cfg["api_key"]:
         return None
     import requests
 
     try:
+        timeout = float(os.environ.get("ICB_INTENT_LLM_TIMEOUT_SECONDS", "30"))
+        if not math.isfinite(timeout) or not 0 < timeout <= 600:
+            raise ValueError("Invalid timeout")
+    except ValueError:
+        diagnostic["status"] = "invalid_timeout_config"
+        return None
+    diagnostic["timeout_seconds"] = timeout
+
+    body = {"model": cfg["model"], "messages": [
+        {"role": "system", "content": system}, {"role": "user", "content": user}],
+        "temperature": temperature}
+    try:
+        output_format = os.environ.get("ICB_INTENT_LLM_OUTPUT_FORMAT", "text")
+        if output_format not in ("text", "json_object", "vllm_guided_json"):
+            raise ValueError("Unknown output format")
+        if output_format == "json_object":
+            body["response_format"] = {"type": "json_object"}
+        elif output_format == "vllm_guided_json":
+            body["guided_json"] = output_schema or {"type": "object"}
+        thinking = os.environ.get("ICB_INTENT_LLM_ENABLE_THINKING")
+        if thinking is not None:
+            if thinking not in ("true", "false"):
+                raise ValueError("Invalid thinking setting")
+            body["chat_template_kwargs"] = {"enable_thinking": thinking == "true"}
+        max_tokens = os.environ.get("ICB_INTENT_LLM_MAX_TOKENS")
+        if max_tokens is not None:
+            limit = int(max_tokens)
+            if not 1 <= limit <= 16384:
+                raise ValueError("Invalid output budget")
+            body["max_tokens"] = limit
+        diagnostic.update(output_format=output_format, thinking=thinking,
+                          max_tokens=body.get("max_tokens"))
+    except ValueError:
+        diagnostic["status"] = "invalid_output_config"
+        return None
+
+    started = time.monotonic()
+    try:
         resp = requests.post(
             f"{cfg['base_url'].rstrip('/')}/chat/completions",
             headers={"Authorization": f"Bearer {cfg['api_key']}",
                      "content-type": "application/json"},
-            json={
-                "model": cfg["model"],
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                "temperature": temperature,
-            },
-            timeout=30,
+            json=body,
+            timeout=(min(30, timeout), timeout),
         )
+        diagnostic["http_status"] = resp.status_code
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"].strip()
-    except Exception:
+        choice = resp.json()["choices"][0]
+        finish = choice.get("finish_reason")
+        if finish in ("stop", "length", "content_filter", "tool_calls"):
+            diagnostic["finish_reason"] = finish
+        content = choice["message"]["content"].strip()
+        diagnostic.update(status="response_received", response_chars=len(content))
+        return content
+    except requests.exceptions.Timeout:
+        diagnostic["status"] = "timeout"
         return None
+    except requests.exceptions.HTTPError:
+        diagnostic["status"] = "http_error"
+        return None
+    except requests.exceptions.RequestException as error:
+        # Requests can wrap urllib3's body-read timeout in ConnectionError.
+        # Inspect exception types, never their possibly sensitive messages.
+        diagnostic["status"] = "timeout" if _contains_timeout(error) else "network_error"
+        for kind in (requests.exceptions.SSLError, requests.exceptions.ProxyError,
+                     requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError):
+            if isinstance(error, kind):
+                diagnostic["network_error_type"] = kind.__name__
+                break
+        return None
+    except Exception:
+        diagnostic["status"] = "invalid_response_structure"
+        return None
+    finally:
+        diagnostic["elapsed_seconds"] = round(time.monotonic() - started, 2)
+
+
+def _contains_timeout(error):
+    import requests
+    from urllib3.exceptions import TimeoutError as UrllibTimeout
+
+    pending, seen = [error], set()
+    while pending and len(seen) < 32:
+        item = pending.pop()
+        if not isinstance(item, BaseException) or id(item) in seen:
+            continue
+        seen.add(id(item))
+        if isinstance(item, (requests.exceptions.Timeout, UrllibTimeout, TimeoutError)):
+            return True
+        pending.extend((item.__cause__, item.__context__, getattr(item, "reason", None)))
+        pending.extend(arg for arg in item.args if isinstance(arg, BaseException))
+    return False
 
 
 def _parse_json(content: str) -> dict:
-    if not content:
-        return {}
-    content = content.strip()
-    if content.startswith("```"):
-        content = content.split("```", 2)[1].lstrip("json").strip()
+    return parse_final_json(content)
+
+
+def _output_failure(code):
+    diagnostic = intent_request_diagnostic()
+    diagnostic.update(status="invalid_output", output_error=code)
+    _CHAT_DIAGNOSTIC.set(diagnostic)
+    return None
+
+
+def _json_response(system, user, schema):
+    _CHAT_DIAGNOSTIC.set(None)
+    content = _chat(system, user, output_schema=schema)
+    if content is None:
+        return None
+    diagnostic = intent_request_diagnostic()
+    diagnostic["response_sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    _CHAT_DIAGNOSTIC.set(diagnostic)
+    if diagnostic.get("finish_reason") == "length":
+        return _output_failure("truncated_output")
     try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        import re
-        m = re.search(r"\{.*\}", content, re.DOTALL)
-        return json.loads(m.group(0)) if m else {}
+        return _parse_json(content)
+    except IntentOutputError as error:
+        return _output_failure(error.code)
 
 
 def _sanitize_predicate(pred):
@@ -139,7 +241,7 @@ def _sanitize_rules(raw_rules):
     return out
 
 
-def anchor_rules_llm(prompt: str, tools_hint=None):
+def anchor_rules_llm(prompt: str, tools_hint=None, *, validation_feedback=None, format_feedback=None):
     """LLM generates Progent-style symbolic least-privilege rules.
 
     ``tools_hint`` (optional) describes the tools available to the agent and
@@ -151,7 +253,7 @@ def anchor_rules_llm(prompt: str, tools_hint=None):
     """
     system = (
         "你是独立的最小权限策略生成器，与执行任务的 agent 完全隔离。"
-        "你的唯一输入是用户任务文本（可信）和可用的工具列表。"
+        "你的输入是用户任务文本（可信）、可用工具列表和可选的可信环境时钟上下文。"
         "生成一组符号规则：只允许 agent 执行任务明确需要的工具调用（最小权限），"
         "其余操作在运行时一律触发人工审批（扩张）。"
         "只输出 JSON，不要解释。格式：\n"
@@ -163,21 +265,66 @@ def anchor_rules_llm(prompt: str, tools_hint=None):
         "原则：\n"
         "1. 只允许任务明确需要的操作，参数约束到任务里明确出现的值/范围。\n"
         "2. deny 只写任务明确禁止或明显越权的操作，不要套用通用黑名单。\n"
-        "3. 若任务没有给出具体参数值，用宽松的 allow + glob/type，不要臆测具体值。\n"
+        "3. 若任务没有给出具体参数值，不要臆测或使用宽松规则冒充授权；保留已知约束，未知参数交由运行时确认。\n"
         "4. 规则数量少而准（3~8 条）；没有把握就不写该工具的规则。\n"
-        "5. 工具名必须使用下方给出的工具列表里的名字。"
+        "5. 工具名必须使用下方给出的工具列表里的名字。\n"
+        "6. 逐项检查工具 schema 的所有参数，包括调用时会补入的默认值；"
+        "用户明确授权的值用 eq/in 等有限约束表示，明确授权 null 可用 in [null]。"
+        "参数省略或为空不等于安全。可信工具配置若声明 no_additional_effect，"
+        "运行时会为未被规则提及的字段补充该有限值集合；不要自行扩大集合。\n"
+        "7. 同一调用中有关系的收件人、文件、内容等应写在同一条规则的组合约束中，"
+        "不要把分别允许的对象拼成任意组合。查询结果和模型拟议参数本身不能扩张用户权限。"
+        "\n8. 参数契约要求 eq/in 有限取值覆盖每个实参；glob/contains/不等式不算充分覆盖。"
+        "若工具上下文提供可信模拟日期，按该日期解析用户的年份和相对日期，不使用现实系统年份。"
+        "不能可靠确定的日期或资源继续保留未授权，不能用通配符冒充可执行授权。"
+        "\n9. 若可信配置提供 runtime_bindings，只能在该声明指定的目标工具、目标字段的"
+        '正向 eq 条件中用 {"$binding":"声明ID"} 表示待绑定值。不得用于 deny、not、or，'
+        "不得创造声明ID，也不得给未授权用途添加绑定。运行时只有经授权工具成功返回的唯一值"
+        "才能填入；绑定不会豁免数据流、效应、能力或业务检查。"
+        '\n10. 参数路径必须包含 payload. 前缀，例如 payload.query，不能写 query。'
+        '同一调用的多个条件必须在一条规则的 and 中同时满足；多条 allow 是 OR，不是 AND。'
+        '例如查询参数和日期需写成 {"op":"and","args":['
+        '{"op":"eq","field":"payload.query","value":"用户指定的查询"},'
+        '{"op":"eq","field":"payload.date","value":"用户指定的日期"}]}。'
+        '\n11. 查询工具的参数应依据工具描述与用户目标生成，而不是猜测执行步骤。'
+        '“下一次、最近的未来事件”等目标不等于“今天”：可信当前日期仅供比较，'
+        '不得据此把查询过滤器自动固定为今天。若工具明确说明省略或 null 表示不按日期过滤，'
+        '且用户未限定某天，应在同一查询规则中明确允许 null，并保留用户指定的主题约束。'
+        '用户明确限定的日期、收件人、路径等不得放宽。'
+        '\n12. 查询词应忠实保留用户指定的主题；可确定时使用一个明确的查询值。'
+        '不要因后续工具输出或拟议调用添加同义词权限。对多步骤任务，考虑必要的只读查找工具；'
+        '只有原始用户任务支持且所有实参有可信界限时才授权，不能以完成任务为由添加宽泛权限。'
     )
     user = f"用户任务：{prompt}"
     if tools_hint:
         user += f"\n可用工具及参数：{tools_hint}"
-    content = _chat(system, user)
-    if content is None:
+        user += (
+            "\nFinal policy check: a reference clock is NOT a user-requested date filter. "
+            "For 'next/upcoming' searches without a specified day, if the tool's optional date "
+            "filters one day and null searches across dates, constrain that date to in [null], "
+            "not today's date. Keep the user's topic constraint in the SAME rule. "
+            "Do not change explicit user date limits. Never infer write recipients or resource IDs. "
+            "For example, a next-occurrence query may use AND(eq(payload.query, user_topic), "
+            "in(payload.date, [null])) when the tool schema supports that meaning."
+        )
+    if validation_feedback is not None:
+        user += ("\n初始规则未通过静态校验，请根据同一个用户任务重新生成完整规则。"
+                 "只纠正字段路径/结构，不新增工具、对象、参数值或权限，不删除禁止条件。"
+                 "不要把多参数条件拆成互相独立的 allow。校验信息：" +
+                 json.dumps(validation_feedback, ensure_ascii=False))
+    if format_feedback:
+        user += "\n上一次输出格式无效。请重新根据原始任务生成一个完整 JSON 对象，不输出思考、解释或多个候选。不要减少安全约束。"
+    data = _json_response(system, user, rules_schema_for_tools(tools_hint))
+    if data is None:
         return None
-    data = _parse_json(content)
     raw_rules = data.get("rules")
-    if not isinstance(raw_rules, list):
-        return None
-    return _sanitize_rules(raw_rules)
+    if not isinstance(raw_rules, list) or set(data) != {"rules"}:
+        return _output_failure("invalid_rules_structure")
+    try:
+        rules = _sanitize_rules(raw_rules)
+    except (RecursionError, TypeError, ValueError):
+        return _output_failure("invalid_rule_clause")
+    return rules if rules or not raw_rules else _output_failure("invalid_rule_clause")
 
 
 def _as_list(v):
@@ -188,7 +335,7 @@ def _as_list(v):
     return [str(v)]
 
 
-def anchor_effect_llm(prompt: str):
+def anchor_effect_llm(prompt: str, *, format_feedback=None):
     """LLM produces a RESTRICTED intent-effect profile (Behavior Alignment).
 
     Crucially: NO trajectory / tool-schema leakage. The only input is the user
@@ -215,19 +362,20 @@ def anchor_effect_llm(prompt: str):
         "也不要因为任务“没提到”某效应就禁止——只禁止任务明确禁止的效应（如“不要转账”“不要分享数据”）。\n"
         "原则：只根据任务语义判断，不臆测；没有把握就留空数组。"
     )
-    content = _chat(system, f"用户任务：{prompt}")
-    if content is None:
+    user = f"用户任务：{prompt}"
+    if format_feedback:
+        user += "\n请只返回一个完整 JSON 对象，不输出思考或解释，保留用户所有明确限制。"
+    data = _json_response(system, user, EFFECTS_SCHEMA)
+    if data is None:
         return None
-    data = _parse_json(content)
+    if (not set(EFFECT_LISTS) <= set(data) or set(data) - {*EFFECT_LISTS, "max_items"}
+            or any(not isinstance(data[k], list) or any(not isinstance(x, str) for x in data[k])
+                   for k in EFFECT_LISTS)):
+        return _output_failure("invalid_effects_structure")
     max_items = data.get("max_items")
-    return {
-        "allowed_recipients": _as_list(data.get("allowed_recipients")),
-        "allowed_targets": _as_list(data.get("allowed_targets")),
-        "allowed_data_types": _as_list(data.get("allowed_data_types")),
-        "allowed_operations": _as_list(data.get("allowed_operations")),
-        "max_items": max_items if isinstance(max_items, int) else None,
-        "forbidden_effects": _as_list(data.get("forbidden_effects")),
-    }
+    if max_items is not None and (type(max_items) is not int or max_items < 0):
+        return _output_failure("invalid_effects_structure")
+    return {**{k: data[k] for k in EFFECT_LISTS}, "max_items": max_items}
 
 
 def analyze_command_danger(command: str):
@@ -247,10 +395,9 @@ def analyze_command_danger(command: str):
         "如果危险，说明它会带来什么具体危害（数据破坏/数据外泄/提权/下载执行恶意代码/修改系统配置等）。"
         "只输出 JSON，不要解释：{\"dangerous\": true|false, \"reason\": \"一句话危害描述\"}"
     )
-    content = _chat(system, f"命令：{key}")
-    if content is None:
+    data = _json_response(system, f"命令：{key}", DANGER_SCHEMA)
+    if data is None:
         return None
-    data = _parse_json(content)
     if not isinstance(data, dict) or not isinstance(data.get("dangerous"), bool):
         return None
     result = {

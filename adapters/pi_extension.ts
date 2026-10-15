@@ -44,7 +44,25 @@ function actionHash(input: unknown): string {
   return createHash("sha256").update(JSON.stringify(input ?? {})).digest("hex");
 }
 
+// Operator-controlled mappings extend the adapter, never the capability grant.
+// Unknown tools remain blocked. Built-in/visual mappings cannot be overridden.
+export function validateToolMappings(value: any): Record<string, { action_type: string; target_field: string }> {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length > 1024)
+    throw new Error("Invalid trusted tool mappings");
+  const reserved = new Set(["bash", "read", "write", "edit", "gui_click", "browser_read", "browser_click", "browser_type"]);
+  for (const [name, spec] of Object.entries(value) as [string, any][]) {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(name) || reserved.has(name) || !spec || typeof spec !== "object"
+        || Object.keys(spec).sort().join(",") !== "action_type,target_field"
+        || typeof spec.action_type !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(spec.action_type)
+        || typeof spec.target_field !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(spec.target_field))
+      throw new Error("Invalid trusted tool mapping entry");
+  }
+  return value;
+}
+
 export default function (pi: ExtensionAPI) {
+  const declaredMappings = process.env.ICB_PI_TOOL_MAPPINGS
+    ? validateToolMappings(JSON.parse(readFileSync(process.env.ICB_PI_TOOL_MAPPINGS, "utf8"))) : {};
   let intentAnchor = "";
   let intentProfile: any = null;
   let capabilityCertId = process.env.ICB_CAPABILITY_CERT_ID ?? "";
@@ -105,6 +123,7 @@ export default function (pi: ExtensionAPI) {
     return (await resp.json()) as {
       verdict: string;
       reason: string;
+      safety_feedback?: { guidance?: string; retryable?: boolean };
       confirm_token?: string;
       policy_update?: any;
       decision_id?: string;
@@ -122,7 +141,14 @@ export default function (pi: ExtensionAPI) {
       write: { type: "write_file", target: (i) => i?.path ?? "" },
       edit: { type: "write_file", target: (i) => i?.path ?? "" },
     };
-    const m = mapping[event.toolName];
+    let m = Object.hasOwn(mapping, event.toolName) ? mapping[event.toolName] : undefined;
+    if (!m && Object.hasOwn(declaredMappings, event.toolName)) {
+      const declared = declaredMappings[event.toolName];
+      if (!event.input || !Object.hasOwn(event.input, declared.target_field)
+          || typeof event.input[declared.target_field] !== "string")
+        return { block: true, reason: "ICB-Guard: 声明的目标字段缺失或类型不符" };
+      m = { type: declared.action_type, target: (input) => input[declared.target_field] };
+    }
     if (!m) {
       if (["gui_click", "browser_read", "browser_click", "browser_type"].includes(event.toolName)) return;
       return { block: true, reason: "ICB-Guard: 未接入授权的工具" };
@@ -144,7 +170,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     if (verdict.verdict === "BLOCK") {
-      return { block: true, reason: `ICB-Guard: ${verdict.reason}` };
+      return { block: true, reason: `ICB-Guard: ${verdict.reason}\n${verdict.safety_feedback?.guidance ?? "This call was not executed. Use existing results or explain the limitation; do not bypass authorization."}` };
     }
     if (verdict.verdict === "CONFIRM") {
       const pu = verdict.policy_update;
@@ -171,6 +197,9 @@ export default function (pi: ExtensionAPI) {
       } catch {
         return { block: true, reason: "ICB-Guard: 无法验证审批" };
       }
+    }
+    if (verdict.execution_mode && verdict.execution_mode !== "trusted-client") {
+      return { block: true, reason: "ICB-Guard: 内置工具不能绑定服务端资源，请使用受控 /execute 接口" };
     }
     if (verdict.verdict !== "ALLOW" || !verdict.execution_ticket || actionHash(event.input) !== inputHash) {
       return { block: true, reason: "ICB-Guard: 授权失效或动作已改变" };

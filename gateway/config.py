@@ -38,6 +38,8 @@ LOG_DIR = STATE_DIR / "logs"
 CERTIFICATE_LOG_PATH = LOG_DIR / "certificates.jsonl"
 
 POLICY_DIR = BASE_DIR / "policy" / "policies"
+_business_policy_file = os.environ.get("ICB_BUSINESS_POLICY_FILE")
+BUSINESS_POLICY_PATH = Path(_business_policy_file).resolve() if _business_policy_file else None
 
 GATEWAY_HOST = os.environ.get("ICB_HOST", "127.0.0.1")
 GATEWAY_PORT = int(os.environ.get("ICB_PORT", "8099"))
@@ -80,6 +82,22 @@ APPROVER_TOKEN = _credential("APPROVER")
 GATEWAY_TOKEN = EXECUTOR_TOKEN
 CDP_ENDPOINTS = frozenset(x.strip() for x in os.environ.get("ICB_CDP_ENDPOINTS", "").split(",") if x.strip())
 EXECUTION_TTL = 30
+# Production always uses server-owned primitives. Development may opt in too.
+CONTROLLED_EXECUTION = os.environ.get("ICB_CONTROLLED_EXECUTION", "0") == "1"
+
+
+def controlled_execution_enabled():
+    return not DEV_MODE or CONTROLLED_EXECUTION
+
+
+def executor_protected_paths():
+    paths = [BASE_DIR, STATE_DIR]
+    if BUSINESS_POLICY_PATH is not None:
+        paths.append(BUSINESS_POLICY_PATH)
+    paths.extend(Path(os.environ[key]).resolve() for key in (
+        "ICB_EXECUTOR_TOKEN_FILE", "ICB_ADMIN_TOKEN_FILE", "ICB_INTENT_TOKEN_FILE",
+        "ICB_APPROVER_TOKEN_FILE") if os.environ.get(key))
+    return paths
 
 
 def validate_security_config():
@@ -90,6 +108,8 @@ def validate_security_config():
         raise RuntimeError("Configure four distinct ICB_*_TOKEN credentials (at least 32 characters)")
     if STATE_DIR.is_relative_to(BASE_DIR):
         raise RuntimeError("ICB_STATE_DIR must be outside the agent workspace")
+    if BUSINESS_POLICY_PATH is not None and BUSINESS_POLICY_PATH.is_relative_to(BASE_DIR):
+        raise RuntimeError("Production business policy must be outside the agent workspace")
     if not PRIVATE_KEY_PATH.is_file():
         raise RuntimeError("Provision a new private key in ICB_STATE_DIR; repository keys are not accepted")
     if not REQUIRE_CAPABILITY or not ENABLE_RULES:

@@ -1,6 +1,8 @@
 // Run with Node >=22.13: node tests/test_pi_adapter.mjs
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { stripTypeScriptTypes } from "node:module";
 
 process.env.ICB_EXECUTOR_TOKEN = "executor-test";
@@ -11,7 +13,7 @@ let source = readFileSync(new URL("../adapters/pi_extension.ts", import.meta.url
 source = source.replace('import { Type } from "typebox";',
   'const Type = new Proxy({}, { get: () => (...args) => args });');
 const javascript = stripTypeScriptTypes(source, { mode: "transform" });
-const { default: install } = await import(`data:text/javascript;base64,${Buffer.from(javascript).toString("base64")}`);
+const { default: install, validateToolMappings } = await import(`data:text/javascript;base64,${Buffer.from(javascript).toString("base64")}`);
 
 async function scenario(responses, { confirm = true, toolName = "read" } = {}) {
   const callbacks = {}, requests = [];
@@ -42,6 +44,9 @@ assert.equal((await scenario([{ verdict: "CONFIRM", confirm_token: "c" }], { con
 assert.equal((await scenario([{ verdict: "ALLOW", execution_ticket: "e" },
   { ok: false, status: 403 }])).result.block, true);
 assert.equal((await scenario([], { toolName: "unregistered_tool" })).result.block, true);
+const controlled = await scenario([{ verdict: "ALLOW", execution_ticket: "e", execution_mode: "controlled" }]);
+assert.equal(controlled.result.block, true);
+assert.equal(controlled.requests.some(r => r.url.endsWith("/consume")), false);
 
 const success = await scenario([{ verdict: "CONFIRM", confirm_token: "c" },
   { status: "approved", ticket: "a" }, { verdict: "ALLOW", execution_ticket: "e" }, { status: "consumed" }]);
@@ -51,4 +56,23 @@ assert.deepEqual(authRequests[0].body.action.payload, success.input);
 assert.equal(authRequests[1].body.approval_ticket, "a");
 assert.equal(success.requests.find(r => r.url.endsWith("/confirm")).headers.Authorization, "Bearer approver-test");
 assert.equal(success.requests.at(-1).headers.Authorization, "Bearer executor-test");
-console.log("pi adapter: 10 scenarios passed (failure, approval, full arguments, single-use consumption)");
+console.log("pi adapter scenarios passed (failure, approval, full arguments, controlled-mode refusal, single-use consumption)");
+const temp = mkdtempSync(join(tmpdir(), "icb-mapping-test-"));
+try {
+  const path = join(temp, "mappings.json");
+  writeFileSync(path, JSON.stringify({ custom_reader: { action_type: "read_file", target_field: "path" } }));
+  process.env.ICB_PI_TOOL_MAPPINGS = path;
+  const mapped = await scenario([{ verdict: "ALLOW", execution_ticket: "e" }, { status: "consumed" }], { toolName: "custom_reader" });
+  assert.equal(mapped.result, undefined);
+  assert.equal(mapped.requests.find(r => r.url.endsWith("/authorize")).body.action.type, "read_file");
+  const denied = await scenario([{ verdict: "BLOCK", reason: "hard boundary" }], { toolName: "custom_reader" });
+  assert.equal(denied.result.block, true);
+  assert.equal(denied.requests.some(r => r.url.endsWith("/consume")), false);
+  for (const value of [{ read: { action_type: "anything", target_field: "path" } },
+    { arbitrary: { action_type: "read_file", target_field: "nested.path" } }, []])
+    assert.throws(() => validateToolMappings(value));
+  console.log("declared tool mappings passed (new tool, hard denial, no built-in override)");
+} finally {
+  delete process.env.ICB_PI_TOOL_MAPPINGS;
+  rmSync(temp, { recursive: true });
+}

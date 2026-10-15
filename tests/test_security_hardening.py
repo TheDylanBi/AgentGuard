@@ -103,6 +103,76 @@ class SecurityHardeningTests(unittest.TestCase):
         approved = gs.confirm(ConfirmRequest(token=result.confirm_token, approve=True))
         return req.model_copy(update={"approval_ticket": approved["ticket"]})
 
+    def test_parameter_constraints_are_hard_even_with_approval(self):
+        caps = dict(self.caps, parameter_constraints={"units": {"type": "integer", "maximum": 10}})
+        cert = self.register(caps)
+        req = self.request(cert=cert, payload={"units": 11})
+        for approved in (False, True):
+            result = gs._authorize(req, approved=approved)
+            self.assertEqual(result.verdict, "BLOCK")
+            self.assertEqual(result.decision_rule, "capability.parameters")
+            self.assertIsNone(result.confirm_token)
+            self.assertIsNone(result.execution_ticket)
+        missing = gs.authorize(self.request(cert=cert))
+        self.assertEqual(missing.decision_rule, "capability.parameters")
+
+    def test_parameter_constraint_registration_http_rejects_unsupported(self):
+        body = {"tool_id": "bad-schema", "declared_capabilities": dict(self.caps,
+            parameter_constraints={"units": {"maximum": "10"}})}
+        status, _ = asyncio.run(http_call("/register_tool", body, token="admin-token"))
+        self.assertEqual(status, 422)
+
+    def test_parameter_checks_repeat_at_consume_and_bind_approval(self):
+        from policy.parameter_constraints import check_constraints
+        cert = self.register(dict(self.caps, parameter_constraints={"units": {"maximum": 10}}))
+        req = self.request(cert=cert, payload={"units": 10})
+        with patch("policy.engine.check_constraints", wraps=check_constraints) as checked:
+            result = gs.authorize(req)
+            self.assertEqual(result.verdict, "ALLOW")
+            gs.consume(self.consume_request(req, result))
+            self.assertEqual(checked.call_count, 2)
+        gs.SESSION_POLICIES["s"]["rules"] = [rule("read_file", self.other)]
+        approved = self.approve(req)
+        changed = approved.model_copy(deep=True)
+        changed.action.payload["units"] = 11
+        with self.assertRaises(HTTPException):
+            gs.authorize(changed)
+
+    def test_nested_taint_hard_block_cannot_be_approved(self):
+        cert = self.register({"actions": ["send"], "network_egress": "allowed"}, "send")
+        gs.SESSION_POLICIES["s"]["rules"] = [rule("send", "recipient")]
+        gs.SESSION_TAINT["s"] = {"dirty": True, "tainted_objects": [{"object_id": "sensitive-object", "source": "private_file"}]}
+        req = self.request("recipient", action="send", tool="send", cert=cert,
+                           payload={"attachments": [{"file": "sensitive-object"}]})
+        for approved in (False, True):
+            result = gs._authorize(req, approved=approved)
+            self.assertEqual((result.verdict, result.decision_rule), ("BLOCK", "p5.taint"))
+            self.assertIsNone(result.execution_ticket)
+
+    def test_business_policy_survives_reanchor_and_cannot_be_approved(self):
+        path = self.root / "business.json"
+        path.write_text(json.dumps({"version": 1, "rules": [
+            {"id": "pause-reads", "actions": ["read_file"], "mode": "deny"}]}), encoding="utf-8")
+        with patch.object(gs, "policy_engine", PolicyEngine("policy/policies", path)):
+            for approved in (False, True):
+                gs._reset_session_policy("s", {"rules": [rule("read_file", self.path)]})
+                result = gs._authorize(self.request(), approved=approved)
+                self.assertEqual((result.verdict, result.decision_rule), ("BLOCK", "business.pause-reads"))
+                self.assertIsNone(result.execution_ticket)
+
+    def test_business_policy_require_is_checked_on_consume(self):
+        path = self.root / "business.json"
+        path.write_text(json.dumps({"version": 1, "rules": [
+            {"id": "units", "actions": ["read_file"], "mode": "require",
+             "parameter_constraints": {"units": {"maximum": 10}}}]}), encoding="utf-8")
+        engine = PolicyEngine("policy/policies", path)
+        with patch.object(gs, "policy_engine", engine), patch.object(engine.business_policy, "check", wraps=engine.business_policy.check) as check:
+            req = self.request(payload={"units": 10})
+            result = gs.authorize(req)
+            self.assertEqual(result.verdict, "ALLOW")
+            gs.consume(self.consume_request(req, result))
+            self.assertEqual(check.call_count, 2)
+
     def test_budget_never_auto_allows_shell(self):
         cert = self.register({"actions": ["shell"], "process": "allowed"}, "shell")
         gs.SESSION_POLICIES["s"]["rules"] = [rule("shell", "echo safe")]

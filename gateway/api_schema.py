@@ -6,7 +6,8 @@ framework only needs to translate its native tool call into an
 """
 from typing import Any, Dict, List, Optional, Literal
 
-from pydantic import BaseModel, Field, ConfigDict, model_validator
+from pydantic import BaseModel, Field, ConfigDict, model_validator, field_validator
+from policy.parameter_constraints import validate_constraints
 
 
 class StrictModel(BaseModel):
@@ -154,6 +155,11 @@ class CapabilityDeclaration(StrictModel):
     target_type: Optional[Literal["recipient", "path", "url", "process", "object"]] = None
     parameter_constraints: Dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("parameter_constraints", mode="before")
+    @classmethod
+    def validate_parameter_constraints(cls, value):
+        return validate_constraints(value)
+
     @model_validator(mode="before")
     @classmethod
     def migrate_legacy_flags(cls, value):
@@ -231,6 +237,7 @@ class Certificate(BaseModel):
 
 class AuthorizeResponse(BaseModel):
     verdict: str  # ALLOW | CONFIRM | BLOCK
+    safety_feedback: Optional[Dict[str, Any]] = None
     certificates: List[Certificate] = Field(default_factory=list)
     reason: str
     decision_rule: Optional[str] = None
@@ -242,3 +249,4 @@ class AuthorizeResponse(BaseModel):
     # must re-hash the action it runs and compare against this id.
     decision_id: Optional[str] = None
     execution_ticket: Optional[str] = None
+    execution_mode: Literal["controlled", "trusted-client"] = "trusted-client"

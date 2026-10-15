@@ -9,10 +9,13 @@ parse) -> CONFIRM.
 P2-1 improvements over the substring version:
   - object-ID matching (exact / path-boundary), NOT substring: ``/tmp/a`` no
     longer falsely matches ``/tmp/abc``;
-  - field-level tracking: each payload field is checked separately;
+  - field-level tracking: nested object values and array elements are checked;
   - taint objects are structured (``{object_id, source}``).
 """
 from typing import Any, Dict, List, Optional
+import json
+import re
+import math
 
 from .symbolic import canonicalize
 
@@ -20,6 +23,56 @@ HIGH_RISK_SOURCES = {
     "credential", "private_file", "PII", "financial",
     "authentication", "external_untrusted",
 }
+
+MAX_SCAN_DEPTH = 64
+MAX_SCAN_NODES = 10000
+
+
+class TaintScanError(ValueError):
+    """A complete bounded scan could not be performed."""
+
+
+def _string_fields(action):
+    """Yield unambiguous paths and strings in JSON values, without decoding text.
+
+    Cycles, unsupported objects and excessive nesting/size fail closed at the
+    classification boundary. Shared but acyclic containers remain supported.
+    Object keys are field names, not references; only their values are scanned.
+    """
+    active = set()
+    nodes = 0
+
+    def walk(value, path, depth):
+        nonlocal nodes
+        nodes += 1
+        if nodes > MAX_SCAN_NODES or depth > MAX_SCAN_DEPTH:
+            raise TaintScanError("Taint scan resource limit exceeded")
+        if isinstance(value, str):
+            yield path, value
+        elif isinstance(value, (dict, list)):
+            identity = id(value)
+            if identity in active:
+                raise TaintScanError("Cyclic taint payload")
+            active.add(identity)
+            try:
+                if isinstance(value, dict):
+                    for key, child in value.items():
+                        if not isinstance(key, str):
+                            raise TaintScanError("Non-JSON object key")
+                        suffix = "." + key if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) else "[" + json.dumps(key, ensure_ascii=False) + "]"
+                        yield from walk(child, path + suffix, depth + 1)
+                else:
+                    for index, child in enumerate(value):
+                        yield from walk(child, f"{path}[{index}]", depth + 1)
+            finally:
+                active.remove(identity)
+        elif type(value) is float and not math.isfinite(value):
+            raise TaintScanError("Non-finite JSON number")
+        elif value is not None and type(value) not in (int, float, bool):
+            raise TaintScanError("Unsupported taint payload value")
+
+    yield from walk(getattr(action, "target", ""), "target", 0)
+    yield from walk(getattr(action, "payload", {}) or {}, "payload", 0)
 
 
 def is_source(capability: Optional[Dict]) -> bool:
@@ -38,7 +91,8 @@ def is_sink(capability: Optional[Dict]) -> bool:
 
 def _oid(obj) -> str:
     """Normalize a taint object (dict or legacy str) to its canonical id."""
-    return canonicalize(obj.get("object_id") if isinstance(obj, dict) else obj)
+    value = obj.get("object_id") if isinstance(obj, dict) else obj
+    return canonicalize(value) if isinstance(value, str) else ""
 
 
 def _object_matches(field_value: str, object_id: str) -> bool:
@@ -60,9 +114,7 @@ def _object_matches(field_value: str, object_id: str) -> bool:
 def references_tainted_field_level(action, tainted_objects) -> List:
     """Return ``[(field, object_id)]`` hits — field-level, object-ID based."""
     hits: List = []
-    payload = getattr(action, "payload", None) or {}
-    candidates = [("target", canonicalize(getattr(action, "target", "")))]
-    candidates += [(f"payload.{k}", canonicalize(v)) for k, v in payload.items()]
+    candidates = list(_string_fields(action))
     for obj in (tainted_objects or []):
         oid = _oid(obj)
         if not oid:
@@ -85,7 +137,12 @@ def classify(action, capability, taint_state) -> Optional[tuple]:
     if not is_sink(capability):
         return None
     st = taint_state or {}
-    hit = references_tainted(action, st.get("tainted_objects", []))
+    if not st.get("dirty") and not st.get("tainted_objects"):
+        return None
+    try:
+        hit = references_tainted(action, st.get("tainted_objects", []))
+    except TaintScanError:
+        return ("BLOCK", "Taint payload could not be fully inspected within supported JSON limits")
     if hit:
         return ("BLOCK",
                 f"确定性 taint：动作直接引用了已读的高风险来源对象 '{hit}'")

@@ -8,7 +8,10 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .security-test-state/
+/.local-qwen/
 # Local benchmark checkout and raw evaluation outputs
 /R-Judge/
 /results/*.json
 /results/*.jsonl
+/results/agentdojo_pi_*/
+/match.json

@@ -14,13 +14,16 @@ import yaml
 
 from . import symbolic
 from . import taint
+from .parameter_constraints import check_constraints
+from .business_rules import BusinessPolicy
 
 _RISK_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 
 
 class PolicyEngine:
-    def __init__(self, policy_dir):
+    def __init__(self, policy_dir, business_policy_path=None):
         self.policy_dir = Path(policy_dir)
+        self.business_policy = BusinessPolicy(business_policy_path)
         self._cache = {}
 
     def _load(self, action_type: str):
@@ -152,6 +155,13 @@ class PolicyEngine:
                  llm_danger=None, llm_reason=None, rules=None, enable_rules=True,
                  certificate=None, certificate_verifier=None, taint_state=None):
         """Evaluate every hard boundary before returning a soft approval request."""
+        business_denial = self.business_policy.check(action)
+        if business_denial:
+            return business_denial
+        constraint_error = check_constraints(action, (capability or {}).get("parameter_constraints", {}))
+        if constraint_error:
+            return {"verdict": "BLOCK", "reason": constraint_error,
+                    "rule": "capability.parameters"}
         effective = rules if rules is not None else (intent_profile or {}).get("rules", [])
         effective = symbolic.validate_rules(effective or [], capability) if enable_rules else []
         policy = self._load(action.type)
@@ -201,7 +211,8 @@ class PolicyEngine:
         present = set(fields)
         missing = (set(sensitive) & present) - symbolic.constrained_fields(matched.get("predicate") or {})
         if missing or (sink and not sensitive):
-            return result("CONFIRM", f"Sensitive arguments not bounded: {sorted(missing)}", "symbolic.underconstrained")
+            return {**result("CONFIRM", f"Sensitive arguments not bounded: {sorted(missing)}", "symbolic.underconstrained"),
+                    "fields": sorted(missing)}
         if tr:
             return result(tr[0], tr[1], "p5.taint")
         if action.type == "shell" and llm_danger is not False:

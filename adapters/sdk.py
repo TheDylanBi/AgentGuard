@@ -33,6 +33,7 @@ class AuthorizationNeedsConfirm(Exception):
 
 @dataclass
 class AuthorizeResult:
+    # Generic advisory metadata; never an execution/approval credential.
     verdict: str
     reason: str
     certificates: List[dict] = field(default_factory=list)
@@ -45,6 +46,8 @@ class AuthorizeResult:
     decision_id: Optional[str] = None
     execution_ticket: Optional[str] = None
     request: Optional[dict] = None
+    execution_mode: str = "trusted-client"
+    safety_feedback: Optional[dict] = None
 
     @property
     def allowed(self) -> bool:
@@ -182,6 +185,8 @@ class ICBGuardClient:
             decision_id=d.get("decision_id"),
             execution_ticket=d.get("execution_ticket"),
             request=req,
+            execution_mode=d.get("execution_mode", "trusted-client"),
+            safety_feedback=d.get("safety_feedback"),
         )
 
     # ---- confirmation ----
@@ -241,9 +246,13 @@ class ICBGuardClient:
             decision_id=d.get("decision_id"),
             execution_ticket=d.get("execution_ticket"),
             request=req,
+            execution_mode=d.get("execution_mode", "trusted-client"),
+            safety_feedback=d.get("safety_feedback"),
         )
 
     def consume(self, result: AuthorizeResult) -> dict:
+        if result.execution_mode != "trusted-client":
+            raise AuthorizationBlocked("Use controlled execution, not a local callback", result)
         if not result.allowed or not result.execution_ticket or not result.request:
             raise AuthorizationBlocked("Missing execution authorization", result)
         req = result.request
@@ -256,6 +265,22 @@ class ICBGuardClient:
         if data.get("status") != "consumed":
             raise AuthorizationBlocked("Execution ticket rejected", result)
         return data
+
+    def execute(self, result: AuthorizeResult) -> dict:
+        """Execute a fixed server primitive, returning output; never retry locally."""
+        if (not result.allowed or result.execution_mode != "controlled"
+                or not result.execution_ticket or not result.request):
+            raise AuthorizationBlocked("Missing controlled execution authorization", result)
+        req = result.request
+        response = requests.post(f"{self.gateway_url}/execute", json={
+            "ticket": result.execution_ticket, "session_id": req["session_id"],
+            "tool": req["tool"], "action": req["action"],
+        }, headers=self._auth_headers(), timeout=self.timeout)
+        response.raise_for_status()
+        data = response.json()
+        if data.get("status") != "executed" or not isinstance(data.get("output"), dict):
+            raise AuthorizationBlocked("Controlled execution did not complete", result)
+        return data["output"]
 
     def health(self) -> dict:
         return requests.get(f"{self.gateway_url}/health", timeout=10).json()
@@ -277,6 +302,8 @@ def guard(
 
     The action target is taken from the first positional arg unless
     ``target_from(args, kwargs)`` is provided.
+    In controlled mode fn supplies only the argument schema: the server runs
+    its fixed primitive and returns an output dict, without invoking fn.
     """
     cert_id = None
 
@@ -314,6 +341,10 @@ def guard(
                 raise AuthorizationNeedsConfirm(result.confirm_token, result)
             if not result.allowed:
                 raise AuthorizationBlocked(result.reason, result)
+            if result.execution_mode == "controlled":
+                return client.execute(result)
+            if result.execution_mode != "trusted-client":
+                raise AuthorizationBlocked("Unknown execution mode", result)
             client.consume(result)
             return fn(*frozen_args, **frozen_kwargs)
 

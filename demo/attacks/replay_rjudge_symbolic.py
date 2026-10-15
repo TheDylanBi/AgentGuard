@@ -326,13 +326,13 @@ def report(rows, mode):
     return metrics
 
 
-def policy_evidence(example, *, enable_rules=True, enable_effects=True):
+def policy_evidence(example, *, enable_rules=True, enable_effects=True, engine=None):
     """Causal action observations; full transcript is judged separately.
 
     User turns alone update intent. Environment text is never promoted to a
     trusted instruction. Stop on first intervention: no invented continuation.
     """
-    engine = PolicyEngine(str(ROOT / "policy" / "policies"))
+    engine = engine if engine is not None else PolicyEngine(str(ROOT / "policy" / "policies"))
     caps = build_tool_caps(set(TOOL_CAPABILITIES))
     trusted = [example["profile"]]
     rules, effect = [], None
@@ -385,6 +385,7 @@ def main():
                     help="Validate full dataset BEFORE filtering; change explicitly for a custom dataset")
     ap.add_argument("--validate-only", action="store_true", help="Check dataset and print manifest without model calls")
     ap.add_argument("--no-effects", action="store_true", help="Disable policy effect profiles only")
+    ap.add_argument("--business-policy", help="Explicit administrator JSON policy for policy-assisted evaluation only")
     ap.add_argument("--parse-only", action="store_true")
     ap.add_argument("--gateway", action="store_true")
     ap.add_argument("--gateway-url", default="http://127.0.0.1:8099")
@@ -395,6 +396,12 @@ def main():
                     help="ablation: run the engine WITHOUT the intent-LLM rules")
     ap.add_argument("--export", type=str, default="")
     args = ap.parse_args()
+
+    if args.business_policy and args.protocol != "policy-assisted":
+        ap.error("--business-policy requires --protocol policy-assisted; gateway replay uses server configuration")
+    evidence_engine = None
+    if args.protocol == "policy-assisted":
+        evidence_engine = PolicyEngine(str(ROOT / "policy" / "policies"), args.business_policy)
 
     if args.limit is not None and args.limit <= 0:
         ap.error("--limit must be positive")
@@ -442,7 +449,7 @@ def main():
         ask = chat_client(args.base_url, os.environ.get("RJUDGE_API_KEY", ""), args.model)
         provider = None
         if args.protocol == "policy-assisted":
-            provider = lambda ex: policy_evidence(ex, enable_rules=not args.no_rules, enable_effects=not args.no_effects)
+            provider = lambda ex: policy_evidence(ex, enable_rules=not args.no_rules, enable_effects=not args.no_effects, engine=evidence_engine)
         with checkpoint.open("x", encoding="utf-8") as stream:
             def save_row(row):
                 stream.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -453,6 +460,7 @@ def main():
         metadata = {"protocol": args.protocol, "model": args.model, "temperature": 0,
                     "analysis_max_tokens": 500, "label_max_tokens": 1 if args.model.startswith("gpt") else 500,
                     "no_rules": args.no_rules, "no_effects": args.no_effects,
+                    "business_policy_hash": evidence_engine.business_policy.fingerprint if evidence_engine else None,
                     "policy_model": os.environ.get("ICB_INTENT_LLM_MODEL", "gpt-4o-mini") if provider else None,
                     "policy_sha256": {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
                         for p in sorted((ROOT / "policy").rglob("*"))

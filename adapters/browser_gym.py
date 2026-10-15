@@ -64,6 +64,8 @@ class GuardBrowserGymAction:
         if not result.allowed:
             raise AuthorizationBlocked("Invalid authorization verdict", result)
         if self.action_fn is not None:
+            if result.execution_mode != "trusted-client":
+                raise AuthorizationBlocked("No controlled browser executor is available", result)
             self.client.consume(result)
             return self.action_fn(action_str)
         return result

@@ -2,6 +2,7 @@
 from pathlib import Path
 from html import escape
 import math
+import argparse
 from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from reportlab.pdfbase.pdfmetrics import stringWidth
@@ -13,7 +14,12 @@ W, H = 1800, 1200
 C = dict(ink='#172B3A', muted='#566875', line='#A5B3BD', blue='#32668C', bluebg='#EDF4F9',
          teal='#24796F', tealbg='#EDF7F3', amber='#A66B1B', amberbg='#FCF5E8',
          red='#A04749', redbg='#FBEFF0', graybg='#F5F7F8', white='#FFFFFF')
-pdf = canvas.Canvas(str(OUT / 'icb_guard_security_framework.pdf'), pagesize=(W, H))
+parser = argparse.ArgumentParser()
+parser.add_argument('--pdf-name', default='icb_guard_security_framework.pdf')
+args = parser.parse_args()
+if Path(args.pdf_name).name != args.pdf_name or not args.pdf_name.endswith('.pdf'):
+    parser.error('--pdf-name must be a PDF filename without directory components')
+pdf = canvas.Canvas(str(OUT / args.pdf_name), pagesize=(W, H))
 pdf.setTitle('ICB-Guard: Implemented Security Architecture and Decision Protocol')
 pdf.setAuthor('Implementation-grounded framework diagram')
 svgs = []
@@ -107,7 +113,7 @@ start(1, 'Security architecture: trusted controls over agent-proposed actions',
 rect(40,150,1720,235,'graybg','line',dash=True)
 text(58,177,'TRUSTED CONTROL PLANE  /  roles use distinct credentials',16,True,'muted')
 card(58,195,530,172,'A  Administrator / capability registry',
-     'Register tool ID, declared actions, path roots, effect flags and sensitive parameters.\nSign capability certificate; only latest registration is valid. Revocation removes the active grant.', 'blue')
+     'Register tool ID, actions, path roots, effects and parameters.\nSign capability; only the latest grant is active.\nIndependent operator file: deny actions / require parameter bounds. Default: no business bans.', 'blue')
 card(608,195,560,172,'B  Trusted user channel / intent anchoring',
      'Intent LLM proposes symbolic rules and expected effects. Server owns the signed profile.\nNew input replaces policy and increments epoch; old tickets become stale. Taint persists.', 'blue')
 card(1188,195,554,172,'C  Independent approver / operator setup',
@@ -124,7 +130,7 @@ card(378,480,390,198,'2  Evidence + provenance',
 card(378,700,390,176,'3  Signed action evidence',
      'Bind full action hash, target/type, session, epoch and expiry.\nInclude sources, verifier versions, roles, region and crop hash.\nEd25519 signature.', 'blue',16)
 card(808,480,516,263,'4  Policy engine + behavior alignment',
-     'Hard checks: active capability, path boundary, explicit deny, direct taint, evidence validity.\nIntent rules: exact tool match and finite constraints on sensitive fields.\nBehavior: compare declared/extracted effects against intent and capability restrictions.\nUncertainty escalates or blocks (Figure 2).', 'blue',17)
+     'Hard checks: business rules, capability parameters, active grant, paths, deny rules, taint and evidence.\nIntent rules: exact tool match and finite sensitive-field constraints.\nBehavior: compare extracted effects against intent and capability restrictions.\nUncertainty escalates or blocks (Figure 2).', 'blue',17)
 card(808,765,516,139,'5  Gateway decision controls',
      'Changed tool implementation: CONFIRM.\nApproval may override CONFIRM only; budget exhaustion becomes BLOCK.', 'amber',16)
 card(1364,480,378,97,'BLOCK  /  deny', 'Stop; no execution ticket.', 'red',17)
@@ -150,7 +156,7 @@ text(1366,918,'Approval + consumption protocol: Figure 3',15,ink='muted')
 card(40,979,850,151,'Shared state and tamper-evident audit',
      'Session policy / epoch / effects / taint; pending, approval and execution tickets.\nDecision, approval and consumption records use a signed hash chain.\nRaw action bodies and screenshots are omitted from the default audit log.', 'teal',17)
 card(910,979,850,151,'Explicit implementation boundary',
-     'Gateway authorizes; it is not an OS sandbox. The executor and tool code are trusted.\nProduction blocks host shell / arbitrary process tools. GUI demo tools are previews.\nParameter constraints metadata and implementation hashes are not runtime attestation.', 'amber',17)
+     'Gateway authorizes; it is not an OS sandbox. The executor and tool code are trusted.\nProduction blocks host shell / arbitrary process tools. GUI demo tools are previews.\nParameter bounds are enforced; implementation hashes are not runtime attestation.', 'amber',17)
 end('icb_guard_architecture', 'Solid arrows: request / decision flow. Dashed arrows: trusted control inputs. Detailed ordering and conditional paths are expanded in Figures 2-3.')
 
 # Figure 2: detailed checks, order, and evidence logic.
@@ -159,8 +165,8 @@ start(2, 'Policy semantics: hard boundaries, conditional evidence, and effect al
 
 text(40,166,'(a)  ENGINE DECISION ORDER',19,True,'blue')
 steps = [
- ('01  Policy selection + declared capability',
-  'Load action YAML; otherwise use valid symbolic rules. Neither available: BLOCK. Require action in declared actions and satisfy YAML capability requirements.'),
+ ('01  Independent business rules + capability bounds',
+  'Operator deny/require rules run first; default empty. Enforce capability parameter bounds. Then require policy or valid rules, declared action and YAML capability requirements.'),
  ('02  File boundary + argument consistency',
   'Resolve absolute paths; enforce exact or directory grants. Empty envelope denies. Reject traversal / foreign paths / Windows alternate streams; reject conflicting target aliases.'),
  ('03  Explicit deny + direct sensitive reference',
@@ -187,9 +193,9 @@ card(913,374,847,186,'Expected effects vs extracted effects',
 card(913,580,847,198,'Visual evidence path',
      'A11y has priority: matching perceptual evidence supports it; disagreement yields conflict. A structured source alone can establish trust.\nOtherwise: two agreeing source types establish trust; one is untrusted; none is unknown. Region agreement = intersection / smaller area (default 0.5).\nOptional previous capture: instability downgrades trust. Attached mode uses a fresh capture without previous-frame comparison.', 'blue',16)
 card(913,798,847,155,'Two-level taint (P5)',
-     'Source declarations include credential access and high-risk source categories.\nSink declarations include network egress, external share and persistence.\nDirect object / path-boundary reference: BLOCK; other sinks after a source read: CONFIRM. Source reads are marked conservatively at ticket consumption.', 'teal',16)
+     'Sources: declared high-risk data / credentials. Sinks: network, sharing, persistence.\nScan nested object values and array elements: direct references BLOCK; other dirty sinks CONFIRM. Depth / size / unsupported-data failures BLOCK.\nMark source taint conservatively at ticket consumption; retain it across user turns.', 'teal',16)
 card(913,973,847,135,'What these checks do not establish',
-     'Provenance does not authorize a task. Intent alignment does not establish request safety. Extracted effects are not observed execution.\nTaint is session/object based; nested references are not fully traced. Generic parameter_constraints remain metadata.', 'amber',15)
+     'Provenance does not authorize a task. Intent alignment does not establish request safety. Extracted effects are not observed execution.\nTaint scans JSON values, not encoded content or object keys. Parameter bounds are per call, not cumulative budgets.', 'amber',15)
 text(40,1101,'Hard BLOCK is never converted to ALLOW by approval.',20,True,'red')
 end('icb_guard_policy_details', 'Conditional execution is explicit: optional verifier backends may be unavailable; effect alignment requires both a declared effect schema and an effect profile.')
 
@@ -225,7 +231,7 @@ text(40,704,'(b)  REVOCATION, AUDIT AND DEPLOYMENT GUARDS',19,True,'blue')
 card(40,725,555,200,'Session / tool transitions',
      'New intent: increment epoch, replace rules, reset effects and confirmation budget; retain taint.\nClose session: clear policy, effects, taint and all tickets.\nNew registration invalidates old capability. Changed implementation converts an ALLOW to CONFIRM.', 'blue',17)
 card(615,725,550,200,'Approval and resource bounds',
-     'Default budget: 10 confirmations per epoch; exceeding it yields BLOCK.\nTicket maps: 10,000-entry guard each. Anchored sessions: 1,000-entry guard.\nOne mutation lock; one worker. Restart invalidates in-memory grants.', 'blue',17)
+     'Default budget: 10 confirmations per epoch; exceeding it yields BLOCK.\nTicket maps: 10,000-entry guard each. Anchored sessions: 1,000-entry guard.\nBusiness policy: startup snapshot, audit hash, restart to reload. One worker.', 'blue',17)
 card(1185,725,575,200,'Audit and credential separation',
      'Ed25519-signed hash chain for recorded decisions, approvals and consumption. Invalid chain stops append.\nFour distinct credentials (at least 32 characters). Agent must not hold privileged tokens. Protect gateway code, keys and state with OS permissions.', 'teal',17)
 
@@ -233,7 +239,7 @@ rect(40,941,1720,179,'amberbg','amber',dash=True)
 text(58,972,'IMPLEMENTATION SCOPE / DO NOT INTERPRET AS ADDITIONAL ENFORCEMENT',18,True,'amber')
 wrapped(58,1003,
         'Single trusted deployment domain; user/tenant-to-session authorization is not implemented. Host shell and declared arbitrary process execution are blocked in production.\n'
-        'Capability implementation_hash records a declared identity; it is not a measurement of the executing binary. Parameter constraints metadata is not a generic hard validator.\n'
+        'Capability implementation_hash is not a measurement of the executing binary. Parameter constraints enforce a documented subset: types, values, bounds, nested fields and array items.\n'
         'Hash chains need external checkpoints to detect suffix deletion. Derived taint may be approved; no complete cross-session or transformed-content lineage is claimed.\n'
         'pi browser/click/type demo tools are authorization previews. R-Judge policy-assisted judgment is an evaluation path, not part of the runtime authorization chain.',
         1684,16,25)
