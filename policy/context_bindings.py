@@ -43,6 +43,13 @@ def bind_dates(rules, query, current_day, declarations):
         field = next(iter(fields), None) if len(fields) == 1 else None
         if not field or rule.get("decision") != "allow" or not isinstance(rule.get("predicate"), dict):
             continue
+        # An explicit null search filter may be needed to find an existing
+        # resource before moving it to a NEW user-requested date. The presence
+        # of that date in the task does not establish its role as a read filter.
+        from .intent_validation import finite_domains
+        domains = finite_domains(rule["predicate"])
+        if domains is not None and any(v is None for v in domains.get("payload." + field, [])):
+            continue
         bound = {"op": "eq", "field": "payload." + field, "value": dates[0]}
         rule["predicate"] = {"op": "and", "args": [rule["predicate"], bound]}
         records.append({"rule_index": index, "tool": rule["tool"], "field": bound["field"],

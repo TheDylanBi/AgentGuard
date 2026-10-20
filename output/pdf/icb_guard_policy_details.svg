@@ -6,9 +6,9 @@
 <text x="1650" y="48" font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="700" fill="#566875">FIGURE 2</text>
 <text x="40" y="166" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#32668C">(a)  ENGINE DECISION ORDER</text>
 <rect x="40" y="184" width="833" height="109" rx="8" fill="#EDF4F9" stroke="#32668C" stroke-width="1.3"/>
-<text x="57" y="214" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#32668C">01  Policy selection + declared capability</text>
-<text x="57" y="242" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">Load action YAML; otherwise use valid symbolic rules. Neither available: BLOCK. Require action in declared</text>
-<text x="57" y="265" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">actions and satisfy YAML capability requirements.</text>
+<text x="57" y="214" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#32668C">01  Independent business rules + capability bounds</text>
+<text x="57" y="242" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">Operator deny/require rules run first; default empty. Enforce capability parameter bounds. Then require policy or</text>
+<text x="57" y="265" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">valid rules, declared action and YAML capability requirements.</text>
 <polyline points="457,293 457,309" fill="none" stroke="#32668C" stroke-width="1.8"/>
 <polygon points="457,309 461.0,299.0 453.0,299.0" fill="#32668C"/>
 <rect x="40" y="309" width="833" height="109" rx="8" fill="#EDF4F9" stroke="#32668C" stroke-width="1.3"/>
@@ -71,15 +71,15 @@
 <text x="930" y="753" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">previous-frame comparison.</text>
 <rect x="913" y="798" width="847" height="155" rx="8" fill="#EDF7F3" stroke="#24796F" stroke-width="1.3"/>
 <text x="930" y="828" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#24796F">Two-level taint (P5)</text>
-<text x="930" y="856" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">Source declarations include credential access and high-risk source categories.</text>
-<text x="930" y="879" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">Sink declarations include network egress, external share and persistence.</text>
-<text x="930" y="902" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">Direct object / path-boundary reference: BLOCK; other sinks after a source read: CONFIRM. Source reads are</text>
-<text x="930" y="925" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">marked conservatively at ticket consumption.</text>
+<text x="930" y="856" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">Sources: declared high-risk data / credentials. Sinks: network, sharing, persistence.</text>
+<text x="930" y="879" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">Scan nested object values and array elements: direct references BLOCK; other dirty sinks CONFIRM. Depth / size</text>
+<text x="930" y="902" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">/ unsupported-data failures BLOCK.</text>
+<text x="930" y="925" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">Mark source taint conservatively at ticket consumption; retain it across user turns.</text>
 <rect x="913" y="973" width="847" height="135" rx="8" fill="#FCF5E8" stroke="#A66B1B" stroke-width="1.3"/>
 <text x="930" y="1003" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#A66B1B">What these checks do not establish</text>
 <text x="930" y="1031" font-family="Arial,Helvetica,sans-serif" font-size="15" font-weight="400" fill="#172B3A">Provenance does not authorize a task. Intent alignment does not establish request safety. Extracted effects are not</text>
 <text x="930" y="1053" font-family="Arial,Helvetica,sans-serif" font-size="15" font-weight="400" fill="#172B3A">observed execution.</text>
-<text x="930" y="1075" font-family="Arial,Helvetica,sans-serif" font-size="15" font-weight="400" fill="#172B3A">Taint is session/object based; nested references are not fully traced. Generic parameter_constraints remain metadata.</text>
+<text x="930" y="1075" font-family="Arial,Helvetica,sans-serif" font-size="15" font-weight="400" fill="#172B3A">Taint scans JSON values, not encoded content or object keys. Parameter bounds are per call, not cumulative budgets.</text>
 <text x="40" y="1101" font-family="Arial,Helvetica,sans-serif" font-size="20" font-weight="700" fill="#A04749">Hard BLOCK is never converted to ALLOW by approval.</text>
 <text x="40" y="1172" font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="400" fill="#566875">Conditional execution is explicit: optional verifier backends may be unavailable; effect alignment requires both a declared effect schema and an effect profile.</text>
 </svg>

@@ -14,6 +14,85 @@ def allow(pred):
 
 
 class RuleGenerationTests(FixtureMixin, unittest.TestCase):
+    def test_read_preflight_stays_initial_and_preserves_denies(self):
+        import json
+        read = [allow({"op": "and", "args": [eq("payload.query", "Networking event"), eq("payload.date", None)]})]
+        deny = {"tool": "send_email", "decision": "deny", "predicate": {"op": "true"}}
+        with patch("adapters.agentdojo_pi.pipeline.intent_llm_configured", return_value=True), \
+             patch("adapters.agentdojo_pi.pipeline.generate_read_rules", return_value=read) as reader, \
+             patch("adapters.agentdojo_pi.pipeline.anchor_rules_llm", return_value=[deny]) as generator, \
+             patch("adapters.agentdojo_pi.pipeline.anchor_effect_llm", return_value={}), \
+             patch("adapters.agentdojo_pi.pipeline.subprocess.Popen", side_effect=RuntimeError("agent-start")):
+            pipeline = self.pipeline()
+            pipeline.read_preflight = True
+            with self.assertRaisesRegex(RuntimeError, "agent-start"):
+                pipeline.query("Find Networking event", self.runtime, self.env)
+        first = json.loads(reader.call_args.kwargs["tools_hint"])
+        second = json.loads(generator.call_args.kwargs["tools_hint"])
+        self.assertEqual(first["generation_scope"], "read_prerequisites")
+        self.assertNotIn("send_email", [t["name"] for t in first["tools"]])
+        self.assertNotIn("reschedule_calendar_event", [t["name"] for t in first["tools"]])
+        self.assertEqual(second["initial_read_rules"], read)
+        self.assertEqual(generator.call_args_list[0].args[0], "Find Networking event")
+        evidence = json.loads(next(pipeline.output.glob("policy-*.json")).read_text())
+        self.assertIn(deny, evidence["rules"])
+        self.assertTrue(evidence["read_preflight"])
+        self.assertEqual([r["stage"] for r in pipeline.intent_requests], ["read_rules", "rules", "effects"])
+
+    def test_read_preflight_cannot_smuggle_write_or_wildcard_rules(self):
+        from policy.intent_output import IntentStageError
+        for tool in ("send_email", "*"):
+            proposed = [{"tool": tool, "decision": "allow", "predicate": {"op": "true"}}]
+            with self.subTest(tool=tool), \
+                 patch("adapters.agentdojo_pi.pipeline.intent_llm_configured", return_value=True), \
+                 patch("adapters.agentdojo_pi.pipeline.generate_read_rules", return_value=proposed) as generator, \
+                 patch("adapters.agentdojo_pi.pipeline.subprocess.Popen") as proc:
+                pipeline = self.pipeline()
+                pipeline.read_preflight = True
+                with self.assertRaises(IntentStageError):
+                    pipeline.query("Find an event", self.runtime, self.env)
+                self.assertEqual(generator.call_count, 1)
+                proc.assert_not_called()
+
+    def test_unrelated_invalid_allow_cannot_poison_valid_read_or_remove_deny(self):
+        import json
+        valid = allow({"op": "and", "args": [eq("payload.query", "Networking event"),
+                                                eq("payload.date", "2024-05-26")]})
+        invalid = {"tool": "create_file", "decision": "allow", "predicate": eq("payload.filename", 123)}
+        deny = {"tool": "send_email", "decision": "deny", "predicate": {"op": "true"}}
+        with patch("adapters.agentdojo_pi.pipeline.intent_llm_configured", return_value=True), \
+             patch("adapters.agentdojo_pi.pipeline.anchor_rules_llm", return_value=[valid, invalid, deny]), \
+             patch("adapters.agentdojo_pi.pipeline.anchor_effect_llm", return_value={}), \
+             patch("adapters.agentdojo_pi.pipeline.subprocess.Popen", side_effect=RuntimeError("agent-start")):
+            pipeline = self.pipeline()
+            with self.assertRaisesRegex(RuntimeError, "agent-start"):
+                pipeline.query("Networking event on May 26th", self.runtime, self.env)
+        evidence = json.loads(next(pipeline.output.glob("policy-*.json")).read_text())
+        self.assertEqual(evidence["quarantined_allow_rules"][0]["rule"], invalid)
+        self.assertIn(deny, evidence["rules"])
+        self.assertNotIn(invalid, evidence["rules"])
+        self.assertIn("Some initial allow proposals failed validation", evidence["planning_hint"])
+
+    def test_semantic_conflict_stops_before_pi_and_saves_evidence(self):
+        import json
+        from policy.intent_output import IntentStageError
+        bad = [allow(eq("payload.query", "shared")),
+               {"tool": "search_calendar_events", "decision": "deny",
+                "predicate": eq("payload.query", "shared")}]
+        with patch("adapters.agentdojo_pi.pipeline.intent_llm_configured", return_value=True), \
+             patch("adapters.agentdojo_pi.pipeline.anchor_rules_llm", return_value=bad), \
+             patch("adapters.agentdojo_pi.pipeline.anchor_effect_llm") as effects, \
+             patch("adapters.agentdojo_pi.pipeline.subprocess.Popen") as proc:
+            pipeline = self.pipeline()
+            with self.assertRaises(IntentStageError) as raised:
+                pipeline.query("Find shared", self.runtime, self.env)
+        self.assertTrue(raised.exception.task_local)
+        self.assertEqual(raised.exception.diagnostic["status"], "invalid_rule_semantics")
+        evidence = json.loads(next(pipeline.output.glob("intent-rejected-*.json")).read_text())
+        self.assertEqual(evidence["rules"], bad)
+        effects.assert_not_called()
+        proc.assert_not_called()
+
     def pipeline(self):
         return PiPipeline(manifest=MANIFEST, pi_package=PI, pi_agent_dir=self.root,
             provider="fixture", model="fixture", mode="guarded", output=self.root / "output",

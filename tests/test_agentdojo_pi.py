@@ -73,7 +73,8 @@ class HostTests(FixtureMixin, unittest.TestCase):
         self.assertEqual(before, self.env.model_dump())
 
     def test_stopped_host_cannot_execute_other_allowed_tool(self):
-        host = self.host(rules=[{"tool": "get_current_day", "decision": "allow", "predicate": {"op": "true"}}])
+        host = self.host(rules=[{"tool": "get_current_day", "decision": "allow", "predicate": {"op": "true"}},
+                                {"tool": "create_file", "decision": "deny", "predicate": {"op": "true"}}])
         host.call("bad", "create_file", {"filename": "fixture", "content": "x"})
         self.assertTrue(host.last_feedback["stop_task"])
         self.assertIsNotNone(host.call("other", "get_current_day", {})[1])
@@ -142,6 +143,16 @@ class HostTests(FixtureMixin, unittest.TestCase):
 
 
 class PiSmokeTests(FixtureMixin, unittest.TestCase):
+    @unittest.skipUnless(PI.exists(), "Installed pi SDK required")
+    def test_boundary_compiler_runs_through_real_pi_and_preserves_snapshot(self):
+        boundary = {"version": 1, "grants": [{"tool": "get_current_day", "purpose": "Read the reference date",
+                                               "parameters": {}}], "denies": []}
+        pipeline, _, _, _ = self.smoke("guarded", tool="get_current_day", intent_format="boundary", boundary=boundary)
+        self.assertEqual(pipeline.runs[0]["counts"]["executed"], 1)
+        snapshot = json.loads(next((self.root / "out").glob("policy-*.json")).read_text())
+        self.assertEqual(snapshot["authorization_boundary"], boundary)
+        self.assertEqual(snapshot["boundary_report"]["unresolved"], [])
+
     """Real installed pi SDK, real AgentDojo tools; no remote API/credentials."""
     @unittest.skipUnless(PI.exists(), "Installed pi SDK required")
     def test_null_calendar_strings_do_not_crash_or_execute_coerced_values(self):
@@ -156,7 +167,9 @@ class PiSmokeTests(FixtureMixin, unittest.TestCase):
     def smoke(self, mode, tool="create_file", args=None, rules=None, official=False, broken=False,
               sequence=None, stopped=False, batch=False, max_turns=16, echo_result=False,
               expected_utility=None, steps=None, final_violation=False,
-              finish_reason=None, reasoning=False, thinking_format=None, response_text=None):
+              finish_reason=None, reasoning=False, thinking_format=None, response_text=None,
+              context_window=32000, response_usage=None, action_output_budget="sdk",
+              final_finish_reason=None, intent_format="rules", boundary=None):
         requests = []
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args):
@@ -207,7 +220,8 @@ class PiSmokeTests(FixtureMixin, unittest.TestCase):
                     {"id": "fixture", "object": "chat.completion.chunk", "created": 1, "model": "fixture",
                      "choices": [{"index": 0, "delta": delta, "finish_reason": None}]},
                     {"id": "fixture", "object": "chat.completion.chunk", "created": 1, "model": "fixture",
-                     "choices": [{"index": 0, "delta": {}, "finish_reason": finish_reason or ("stop" if has_result else "tool_calls")}]}):
+                     "choices": [{"index": 0, "delta": {}, "finish_reason": None if has_result and final_finish_reason == "missing" else (final_finish_reason if has_result and final_finish_reason else finish_reason) or ("stop" if has_result else "tool_calls")}],
+                     **({"usage": response_usage} if response_usage else {})}):
                     self.wfile.write(("data: " + json.dumps(item) + "\n\n").encode())
                 self.wfile.write(b"data: [DONE]\n\n")
                 self.wfile.flush()
@@ -222,16 +236,18 @@ class PiSmokeTests(FixtureMixin, unittest.TestCase):
         (config / "models.json").write_text(json.dumps({"providers": {"fixture": {
             "baseUrl": f"http://127.0.0.1:{server.server_port}/v1", "api": "openai-completions",
             "apiKey": "local-fixture-only", "models": [{"id": "fixture", "name": "Fixture",
-                "reasoning": reasoning, "input": ["text"], "contextWindow": 32000, "maxTokens": 1024,
+                "reasoning": reasoning, "input": ["text"], "contextWindow": context_window, "maxTokens": 1024,
                 **({"compat": {"thinkingFormat": thinking_format}} if thinking_format else {}),
                 "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}}]}}}))
         pipeline = PiPipeline(manifest=MANIFEST, pi_package=PI, pi_agent_dir=config,
             provider="fixture", model="fixture", mode=mode, output=self.root / "out", node=NODE, timeout=45,
-            max_turns=max_turns, trusted_current_day=self.env.calendar.current_day.isoformat())
+            max_turns=max_turns, trusted_current_day=self.env.calendar.current_day.isoformat(),
+            action_output_budget=action_output_budget, intent_format=intent_format)
         before = self.env.model_dump()
         with patch("adapters.agentdojo_pi.pipeline.intent_llm_configured", return_value=True), \
              patch("policy.intent_anchor.intent_llm_configured", return_value=True), \
              patch("adapters.agentdojo_pi.pipeline.anchor_rules_llm", return_value=rules or []), \
+             patch("policy.intent_anchor.anchor_boundary_llm", return_value=boundary), \
              patch("adapters.agentdojo_pi.pipeline.anchor_effect_llm", return_value={}):
             if broken:
                 with self.assertRaises(RuntimeError):
@@ -400,10 +416,12 @@ class PiSmokeTests(FixtureMixin, unittest.TestCase):
         pipe, _, _, requests = self.smoke("guarded", tool="search_calendar_events", rules=rules,
             steps=[{"tool": "search_calendar_events", "arguments": {"query": "Networking event", "date": date}},
                    {"tool": "search_contacts_by_name", "arguments": {"query": "Emma Johnson"}}],
-            official=True, stopped=True, echo_result="first", expected_utility=True)
+            official=True, stopped=False, echo_result="first", expected_utility=True)
         self.assertEqual(pipe.runs[0]["counts"]["executed"], 1)
         self.assertEqual(pipe.runs[0]["counts"]["BLOCK"], 1)
-        self.assertFalse(requests[-1].get("tools"))
+        # The unauthorized lookup stays blocked, but existing authorized reads
+        # remain available; the model can also finish using its earlier result.
+        self.assertTrue(requests[-1].get("tools"))
 
     @unittest.skipUnless(PI.exists(), "Installed pi SDK required")
     def test_final_answer_tool_proposal_never_executes(self):

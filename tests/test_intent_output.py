@@ -8,6 +8,25 @@ from policy.intent_anchor import anchor_rules_llm, anchor_effect_llm, intent_req
 
 
 class IntentOutputTests(unittest.TestCase):
+    def test_compact_json_bounds_structure_without_rewriting_values(self):
+        content = '  {"rules":[]}\n' + ' ' * 100
+        response = Mock(status_code=200)
+        response.json.return_value = {"choices": [{"finish_reason": "stop", "message": {"content": content}}],
+                                      "usage": {"completion_tokens": 120, "prompt_tokens": "private"}}
+        with patch.dict(os.environ, {"ICB_INTENT_LLM_API_KEY": "test",
+                "ICB_INTENT_LLM_OUTPUT_FORMAT": "vllm_guided_json", "ICB_INTENT_LLM_COMPACT_JSON": "true"}), \
+                patch("requests.post", return_value=response) as post:
+            self.assertEqual(anchor_rules_llm("task"), [])
+        body = post.call_args.kwargs["json"]
+        self.assertEqual(body["guided_whitespace_pattern"], "[ ]?")
+        self.assertNotIn("guided_decoding_backend", body)
+        diagnostic = intent_request_diagnostic()
+        self.assertEqual(diagnostic["raw_response_chars"], len(content))
+        self.assertEqual(diagnostic["trailing_whitespace_chars"], 101)
+        self.assertEqual(diagnostic["completion_tokens"], 120)
+        self.assertNotIn("prompt_tokens", diagnostic)
+        self.assertNotIn("private", str(diagnostic))
+
     def test_reasoning_braces_never_become_final_rules(self):
         text = '<think>Example {"rules":[{"decision":"allow"}]} thoughts</think>\n```json\n{"rules":[]}\n```'
         self.assertEqual(parse_final_json(text), {"rules": []})
@@ -66,7 +85,8 @@ class IntentOutputTests(unittest.TestCase):
         self.assertEqual(intent_request_diagnostic()["output_error"], "truncated_output")
 
     def test_invalid_output_setting_fails_before_network(self):
-        for key, value in (("OUTPUT_FORMAT", "unknown"), ("ENABLE_THINKING", "maybe"), ("MAX_TOKENS", "0")):
+        for key, value in (("OUTPUT_FORMAT", "unknown"), ("ENABLE_THINKING", "maybe"), ("MAX_TOKENS", "0"),
+                           ("COMPACT_JSON", "maybe"), ("COMPACT_JSON", "true")):
             with self.subTest(key=key), patch.dict(os.environ, {"ICB_INTENT_LLM_API_KEY": "test",
                     "ICB_INTENT_LLM_" + key: value}), patch("requests.post") as post:
                 self.assertIsNone(_chat("sys", "task"))

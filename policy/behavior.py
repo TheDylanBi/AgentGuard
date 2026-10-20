@@ -37,7 +37,7 @@ def _extract_values(payload: Optional[Dict], keys: List[str]) -> List[str]:
 
 def extract_actual_effect(tool: str, target: str, payload: Optional[Dict],
                           capability: Optional[Dict] = None,
-                          taint_state: Optional[Dict] = None) -> ActualEffect:
+                          taint_state: Optional[Dict] = None, *, resolved_recipients=None) -> ActualEffect:
     """Extract the ACTUAL effect of a tool call from its arguments.
 
     change 5: if the effect CANNOT be determined (no effect schema AND no
@@ -47,12 +47,19 @@ def extract_actual_effect(tool: str, target: str, payload: Optional[Dict],
     caps = capability or {}
     target_type = caps.get("target_type")
     recipients = _extract_values(payload, _TARGET_KEYS.get(target_type or "", []))
-    if not recipients and target:
+    if not recipients and target and target_type != "object":
         # fallback: when no explicit recipient key is present, the target itself
         # is the subject (e.g. a path, url or command).
         recipients = [str(target)]
 
     effect_type = caps.get("effect_type")
+    recipients_known = not (target_type == "object" and effect_type in {
+        "external_communication", "share", "financial_transfer"})
+    if resolved_recipients is not None:
+        if not isinstance(resolved_recipients, list) or any(not isinstance(v, str) or not v for v in resolved_recipients):
+            raise ValueError("Trusted recipient resolution must contain strings")
+        recipients = list(dict.fromkeys(resolved_recipients))
+        recipients_known = True
     side_effects = [effect_type] if effect_type else []
 
     unknown = (effect_type is None) and not recipients
@@ -65,4 +72,5 @@ def extract_actual_effect(tool: str, target: str, payload: Optional[Dict],
         recipients=recipients,
         side_effects=side_effects,
         unknown=unknown,
+        recipients_known=recipients_known,
     )

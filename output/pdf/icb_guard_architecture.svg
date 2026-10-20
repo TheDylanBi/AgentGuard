@@ -8,10 +8,10 @@
 <text x="58" y="177" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="700" fill="#566875">TRUSTED CONTROL PLANE  /  roles use distinct credentials</text>
 <rect x="58" y="195" width="530" height="172" rx="8" fill="#EDF4F9" stroke="#32668C" stroke-width="1.3"/>
 <text x="75" y="225" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#32668C">A  Administrator / capability registry</text>
-<text x="75" y="253" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Register tool ID, declared actions, path roots, effect flags and</text>
-<text x="75" y="277" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">sensitive parameters.</text>
-<text x="75" y="301" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Sign capability certificate; only latest registration is valid.</text>
-<text x="75" y="325" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Revocation removes the active grant.</text>
+<text x="75" y="253" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Register tool ID, actions, path roots, effects and parameters.</text>
+<text x="75" y="277" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Sign capability; only the latest grant is active.</text>
+<text x="75" y="301" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Independent operator file: deny actions / require parameter</text>
+<text x="75" y="325" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">bounds. Default: no business bans.</text>
 <rect x="608" y="195" width="560" height="172" rx="8" fill="#EDF4F9" stroke="#32668C" stroke-width="1.3"/>
 <text x="625" y="225" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#32668C">B  Trusted user channel / intent anchoring</text>
 <text x="625" y="253" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Intent LLM proposes symbolic rules and expected effects. Server</text>
@@ -56,11 +56,11 @@
 <text x="395" y="850" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">Ed25519 signature.</text>
 <rect x="808" y="480" width="516" height="263" rx="8" fill="#EDF4F9" stroke="#32668C" stroke-width="1.3"/>
 <text x="825" y="510" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#32668C">4  Policy engine + behavior alignment</text>
-<text x="825" y="538" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Hard checks: active capability, path boundary, explicit deny,</text>
-<text x="825" y="562" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">direct taint, evidence validity.</text>
-<text x="825" y="586" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Intent rules: exact tool match and finite constraints on sensitive</text>
-<text x="825" y="610" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">fields.</text>
-<text x="825" y="634" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Behavior: compare declared/extracted effects against intent and</text>
+<text x="825" y="538" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Hard checks: business rules, capability parameters, active</text>
+<text x="825" y="562" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">grant, paths, deny rules, taint and evidence.</text>
+<text x="825" y="586" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Intent rules: exact tool match and finite sensitive-field</text>
+<text x="825" y="610" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">constraints.</text>
+<text x="825" y="634" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Behavior: compare extracted effects against intent and</text>
 <text x="825" y="658" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">capability restrictions.</text>
 <text x="825" y="682" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Uncertainty escalates or blocks (Figure 2).</text>
 <rect x="808" y="765" width="516" height="139" rx="8" fill="#FCF5E8" stroke="#A66B1B" stroke-width="1.3"/>
@@ -113,6 +113,6 @@
 <text x="927" y="1009" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#A66B1B">Explicit implementation boundary</text>
 <text x="927" y="1037" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Gateway authorizes; it is not an OS sandbox. The executor and tool code are trusted.</text>
 <text x="927" y="1061" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Production blocks host shell / arbitrary process tools. GUI demo tools are previews.</text>
-<text x="927" y="1085" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Parameter constraints metadata and implementation hashes are not runtime attestation.</text>
+<text x="927" y="1085" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Parameter bounds are enforced; implementation hashes are not runtime attestation.</text>
 <text x="40" y="1172" font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="400" fill="#566875">Solid arrows: request / decision flow. Dashed arrows: trusted control inputs. Detailed ordering and conditional paths are expanded in Figures 2-3.</text>
 </svg>

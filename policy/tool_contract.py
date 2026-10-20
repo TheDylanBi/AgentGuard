@@ -24,7 +24,7 @@ def typed_equal(left, right):
 
 class ToolContract:
     def __init__(self, name, parameters, *, semantics=None, schema_hash=None,
-                 legacy_empty_values=None, target_field=None, aliases=None):
+                 legacy_empty_values=None, target_field=None, aliases=None, roles=None):
         self.name, self.parameters = name, parameters
         self.schema = parameters.model_json_schema()
         self.schema_hash = object_hash(self.schema)
@@ -57,6 +57,16 @@ class ToolContract:
             if not any(typed_equal(field.default, value) for value in values):
                 raise ValueError("Legacy default is not an approved empty value")
         self.fields = {}
+        roles = copy.deepcopy({} if roles is None else roles)
+        if not isinstance(roles, dict) or set(roles) - set(parameters.model_fields) or (roles and schema_hash is None):
+            raise ValueError("Parameter roles require known fields and a reviewed schema hash")
+        for field_name, declaration in roles.items():
+            if (not isinstance(declaration, dict) or set(declaration) != {"role", "reason"}
+                    or declaration["role"] not in {"control", "resource", "destination", "content", "execution"}
+                    or not isinstance(declaration["reason"], str) or not declaration["reason"].strip()
+                    or (field_name == target_field and declaration["role"] == "content")):
+                raise ValueError("Invalid reviewed parameter role")
+        self.roles = roles
         for field_name, field in parameters.model_fields.items():
             declaration = semantics.get(field_name, {"mode": "intent_bound"})
             if not isinstance(declaration, dict):
@@ -88,6 +98,7 @@ class ToolContract:
             else:
                 raise ValueError("Unsupported parameter semantics mode")
             record = {"required": field.is_required(), "mode": mode}
+            record["role"] = roles.get(field_name, {}).get("role", "control")
             if not field.is_required():
                 if field.default_factory is not None:
                     raise ValueError("Dynamic defaults need a dedicated trusted adapter")

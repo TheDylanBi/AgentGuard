@@ -83,8 +83,8 @@
 <text x="632" y="807" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">BLOCK.</text>
 <text x="632" y="831" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Ticket maps: 10,000-entry guard each. Anchored sessions:</text>
 <text x="632" y="855" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">1,000-entry guard.</text>
-<text x="632" y="879" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">One mutation lock; one worker. Restart invalidates in-memory</text>
-<text x="632" y="903" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">grants.</text>
+<text x="632" y="879" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Business policy: startup snapshot, audit hash, restart to reload. One</text>
+<text x="632" y="903" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">worker.</text>
 <rect x="1185" y="725" width="575" height="200" rx="8" fill="#EDF7F3" stroke="#24796F" stroke-width="1.3"/>
 <text x="1202" y="755" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#24796F">Audit and credential separation</text>
 <text x="1202" y="783" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="400" fill="#172B3A">Ed25519-signed hash chain for recorded decisions, approvals and</text>
@@ -95,7 +95,7 @@
 <rect x="40" y="941" width="1720" height="179" rx="8" fill="#FCF5E8" stroke="#A66B1B" stroke-width="1.3" stroke-dasharray="6 4"/>
 <text x="58" y="972" font-family="Arial,Helvetica,sans-serif" font-size="18" font-weight="700" fill="#A66B1B">IMPLEMENTATION SCOPE / DO NOT INTERPRET AS ADDITIONAL ENFORCEMENT</text>
 <text x="58" y="1003" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">Single trusted deployment domain; user/tenant-to-session authorization is not implemented. Host shell and declared arbitrary process execution are blocked in production.</text>
-<text x="58" y="1028" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">Capability implementation_hash records a declared identity; it is not a measurement of the executing binary. Parameter constraints metadata is not a generic hard validator.</text>
+<text x="58" y="1028" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">Capability implementation_hash is not a measurement of the executing binary. Parameter constraints enforce a documented subset: types, values, bounds, nested fields and array items.</text>
 <text x="58" y="1053" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">Hash chains need external checkpoints to detect suffix deletion. Derived taint may be approved; no complete cross-session or transformed-content lineage is claimed.</text>
 <text x="58" y="1078" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="400" fill="#172B3A">pi browser/click/type demo tools are authorization previews. R-Judge policy-assisted judgment is an evaluation path, not part of the runtime authorization chain.</text>
 <text x="40" y="1172" font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="400" fill="#566875">Based on the current repository implementation. All numeric limits shown are defaults; deployment configuration may change configurable limits.</text>

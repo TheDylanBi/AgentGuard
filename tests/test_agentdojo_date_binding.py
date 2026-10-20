@@ -13,6 +13,11 @@ RULE = {"tool": "search_calendar_events", "decision": "allow", "predicate": {"op
 
 
 class DateBindingTests(FixtureMixin, unittest.TestCase):
+    def test_new_write_date_does_not_override_explicit_null_lookup(self):
+        rule = copy.deepcopy(RULE)
+        rule["predicate"]["args"][1] = {"op": "in", "field": "payload.date", "value": [None]}
+        self.assertEqual(bind_dates([rule], "Move the event to May 26", "2024-05-15"), ([rule], []))
+
     def test_other_tools_and_wildcards_get_no_date_grant(self):
         rules = [{"tool": tool, "decision": "allow", "predicate": {"op": "true"}}
                  for tool in ("*", "send_email", "create_calendar_event")]

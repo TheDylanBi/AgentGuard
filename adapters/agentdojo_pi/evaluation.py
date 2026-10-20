@@ -56,10 +56,14 @@ def benchmark_with_task_errors(pipeline, suite, *, attack=None, user_tasks=None,
             # A missing policy is not a defense success. No fabricated official
             # score, no fallback policy, no replay of a partially executed task.
             key = "intent_diagnostic" if isinstance(error, IntentStageError) else "action_diagnostic"
-            failure = {**row, "error_type": type(error).__name__, key: error.diagnostic}
+            local = error.task_local
+            failure = {**row, "error_type": type(error).__name__, key: error.diagnostic,
+                       "error_scope": "task" if local else "service_or_unknown"}
             state["task_errors"].append(failure)
             state["task_outcomes"].append({**row, "status": "error", "utility": None, "security": None})
-            consecutive += 1
+            # Exhausting one task's context/output is not evidence that the
+            # server is unavailable. Keep its null scores and try other tasks.
+            consecutive = 0 if local else consecutive + 1
             report_task_error(phase, task.ID + ("/" + injection.ID if injection else ""))
         except BaseException as error:
             # A bridge invariant, interruption or unexpected programming failure
@@ -67,9 +71,12 @@ def benchmark_with_task_errors(pipeline, suite, *, attack=None, user_tasks=None,
             state["interrupted_task"] = {**row, "status": "interrupted", "error_type": type(error).__name__}
             on_update(state)
             raise
+        if consecutive >= max_consecutive_errors:
+            state["halt_reason"] = {"code": "consecutive_service_or_unknown_errors", "count": consecutive,
+                                    "task": row}
         on_update(state)  # Persist after every scored/error task, including the last error before abort.
         if consecutive >= max_consecutive_errors:
-            raise ConsecutiveTaskErrors(f"Stopped after {consecutive} consecutive model-stage errors; see summary.json")
+            raise ConsecutiveTaskErrors(f"Stopped after {consecutive} consecutive service/unknown model errors; see summary.json")
     if attack is not None and not attack.is_dos_attack and (
             len(result["injection_tasks_utility_results"]) != len(injections)
             or not all(result["injection_tasks_utility_results"].values())):

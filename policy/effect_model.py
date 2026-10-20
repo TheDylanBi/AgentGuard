@@ -38,6 +38,9 @@ class ActualEffect:
     # and no recipients extracted). Sensitive/sink ops with unknown effect must
     # NOT default to "no violation".
     unknown: bool = False
+    # Resource IDs are not addresses. A host resolver must supply recipients
+    # for effects that notify subjects hidden behind an object reference.
+    recipients_known: bool = True
 
 
 # effect_type -> the capability flag that authorizes it. If the flag is NOT

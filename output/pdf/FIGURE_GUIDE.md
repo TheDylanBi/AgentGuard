@@ -1,12 +1,15 @@
 # ICB-Guard 框架图使用说明
 
-本组图以当前代码为依据，共三张，英文标注，白底、矢量文字、低饱和配色。
+本组图对应独立业务规则完成时的代码快照，共三张，英文标注，白底、矢量文字、低饱和配色。
+后续已新增服务端 `/execute` 与 NTFS 资源绑定；本组图尚未体现该执行链变化，当前行为以 `docs/controlled-execution.md` 为准。
 PDF 三页依次对应总览、策略细节、票据生命周期。SVG 可独立导入论文制图工具修改。
 建议总览用于论文正文的跨双栏插图；细节图用于方法章节或附录，避免把全部细节缩到单栏。
 
 ## 文件
 
-- `icb_guard_security_framework.pdf`：三页矢量版。
+- `icb_guard_security_framework_business_rules.pdf`：本组最新三页矢量版，含嵌套 taint 与默认空的独立业务规则，尚不含受控执行器。
+- `icb_guard_security_framework_constraints.pdf`：参数硬约束阶段的旧版保留。
+- `icb_guard_security_framework.pdf`：旧版保留，参数约束的旧说明已过时，以更新版为准。
 - `icb_guard_architecture.svg`：框架总览。
 - `icb_guard_policy_details.svg`：策略顺序与分支。
 - `icb_guard_ticket_lifecycle.svg`：审批、执行消费、撤销与部署边界。
@@ -61,7 +64,9 @@ taint before the trusted executor proceeds. Revocation and deployment assumption
 
 ## 准确性说明
 
-这些图没有把尚未实现的独立沙箱、多租户权限、通用参数约束执行、完整数据流追踪、
+参数硬约束已实现，注册时验证格式，授权与消费时强制检查；目前支持的范围见 `docs/parameter-constraints.md`。
+嵌套 taint 已覆盖 JSON 字典值和数组元素；独立业务规则支持管理员 deny/require 配置，默认空规则，见 `docs/business-policy.md`。
+这些图没有把尚未实现的独立沙箱、多租户权限、完整 JSON Schema、完整数据流追踪、
 实际二进制测量或外部审计检查点画成现有保护。R-Judge 判别模型不属于在线授权链路。
 签名证明来源与完整性，不等于动作本身安全。图中“actual effects”来自参数提取，
 因此统一使用“extracted effects”，避免暗示执行后观测。

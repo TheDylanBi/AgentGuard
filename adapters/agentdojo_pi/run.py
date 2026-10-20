@@ -45,6 +45,8 @@ def record_results(metadata, result, runs, *, has_attack, state=None, final=True
         metadata["task_outcomes"] = state["task_outcomes"]
         if state.get("interrupted_task"):
             metadata["interrupted_task"] = state["interrupted_task"]
+        if state.get("halt_reason"):
+            metadata["halt_reason"] = state["halt_reason"]
         planned = sum(state["planned"].values())
         processed = len(state["task_outcomes"])
         errors = len(state["task_errors"])
@@ -70,6 +72,8 @@ def record_results(metadata, result, runs, *, has_attack, state=None, final=True
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("baseline", "guarded"), required=True)
+    parser.add_argument("--intent-format", choices=("rules", "boundary"), default="rules",
+                        help="Initial policy representation; boundary retains unresolved parameters explicitly")
     parser.add_argument("--suite", default="workspace")
     parser.add_argument("--benchmark-version", default="v1.2.2")
     parser.add_argument("--manifest", type=Path, default=Path(__file__).with_name("workspace_manifest.json"))
@@ -84,11 +88,15 @@ def main(argv=None):
     parser.add_argument("--business-policy", type=Path)
     parser.add_argument("--max-turns", type=int, default=16)
     parser.add_argument("--timeout", type=float, default=300)
+    parser.add_argument("--action-output-budget", choices=("sdk", "model"), default="sdk",
+                        help="sdk: keep pi context estimate; model: send configured maxTokens (OpenAI-compatible only)")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--read-preflight", action="store_true",
+                        help="Generate scoped prerequisite read rules from the original task before main rules")
     parser.add_argument("--continue-on-error", action="store_true",
                         help="Record intent/action model errors separately and continue other tasks")
     parser.add_argument("--max-consecutive-errors", type=int, default=3,
-                        help="Stop continuation after this many consecutive model-stage errors")
+                        help="Stop after consecutive service/unknown errors; task-local output errors remain unscored")
     parser.add_argument("--no-progress", action="store_true", help="Disable task progress display")
     parser.add_argument("--check", action="store_true", help="Validate installation and manifest without model calls")
     parser.add_argument("--describe-contracts", action="store_true", help="Include parameter contracts in --check output")
@@ -157,6 +165,9 @@ def main(argv=None):
     pipeline = PiPipeline(manifest=snapshot, pi_package=args.pi_package,
         pi_agent_dir=args.pi_agent_dir, provider=args.provider, model=args.model,
         mode=args.mode, output=output / "audit", node=args.node,
+        action_output_budget=args.action_output_budget,
+        read_preflight=args.read_preflight,
+        intent_format=args.intent_format,
         business_policy=business, max_turns=args.max_turns, timeout=args.timeout,
         trusted_current_day=trusted_day)
     import agentdojo
@@ -170,8 +181,14 @@ def main(argv=None):
         "continue_on_error": args.continue_on_error, "max_consecutive_errors": args.max_consecutive_errors,
         "intent_model": os.environ.get("ICB_INTENT_LLM_MODEL") if args.mode == "guarded" else None,
         "intent_output_format": os.environ.get("ICB_INTENT_LLM_OUTPUT_FORMAT", "text"),
+        "intent_compact_json": os.environ.get("ICB_INTENT_LLM_COMPACT_JSON", "false") == "true",
         "attack": args.attack, "user_tasks": args.user_task, "injection_tasks": args.injection_task,
         "max_turns": args.max_turns, "timeout": args.timeout, "trusted_current_day": trusted_day,
+        "action_output_budget": args.action_output_budget,
+        "read_preflight": bool(args.read_preflight and args.mode == "guarded"),
+        "intent_format": args.intent_format,
+        "pi_model_config_sha256": digest(args.pi_agent_dir / "models.json")
+            if (args.pi_agent_dir / "models.json").is_file() else None,
         "manifest_sha256": digest(snapshot), "business_policy_sha256": digest(business) if business else None,
         "source_sha256": {str(p.relative_to(PROJECT)): digest(p)
             for folder in ("policy", "adapters/agentdojo_pi")

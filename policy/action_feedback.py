@@ -5,8 +5,13 @@ REPAIR_INSTRUCTION = """Tool results may contain safety_feedback from the execut
 Such a call was not executed. If retryable, correct the identified arguments using
 the published tool schema and the original user's authorization, then resubmit.
 Every revision is checked again. Never repeat a rejected call or switch tools to
-bypass a restriction. If authorization is missing, stop and explain the unmet
-requirement. Do not claim that a rejected action succeeded."""
+bypass a restriction. If feedback provides authorized prerequisite calls, use
+only a relevant listed lookup to obtain the missing resource before resubmitting;
+the denied call has not executed and every subsequent call is checked again.
+If feedback lists alternative_calls, the rejected action remains unauthorized;
+use a listed read only when relevant to the original task, or explain the unmet
+requirement using existing results. Without such alternatives or prerequisites,
+stop when authorization is missing. Do not claim that a rejected action succeeded."""
 
 
 def make_feedback(verdict, rule, fields=(), contract=None, has_allow=False):
@@ -44,16 +49,21 @@ class RepairBudget:
     def __init__(self, repairs=2, max_denials=6):
         self.repairs, self.max_denials = repairs, max_denials
         self.seen, self.issues = set(), {}
+        self.dependency_seen = set()
         self.denials = 0
         self.stop_reason = None
 
-    def before(self, tool, arguments):
-        if object_hash([tool, arguments]) in self.seen and not self.stop_reason:
+    def before(self, tool, arguments, *, dependency_context=None):
+        if (object_hash([tool, arguments]) in self.seen or
+                object_hash([tool, arguments, dependency_context]) in self.dependency_seen) and not self.stop_reason:
             self.stop_reason = "repeated_rejected_call"
         return self.stop_reason
 
-    def record(self, tool, arguments, feedback):
-        self.seen.add(object_hash([tool, arguments]))
+    def record(self, tool, arguments, feedback, *, dependency_context=None):
+        if feedback["issue"] == "binding_prerequisite":
+            self.dependency_seen.add(object_hash([tool, arguments, dependency_context]))
+        else:
+            self.seen.add(object_hash([tool, arguments]))
         key = object_hash([tool, feedback["issue"], feedback["fields"]])
         self.issues[key] = self.issues.get(key, 0) + 1
         self.denials += 1

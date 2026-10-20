@@ -67,7 +67,9 @@ def check_behavior_alignment(expected: ExpectedEffect, actual: ActualEffect,
             violations.append("target_out_of_scope")
 
     # 3. recipient constraint
-    if expected.allowed_recipients:
+    if not actual.recipients_known:
+        violations.append("unresolved_recipients")
+    if expected.allowed_recipients and caps.get("target_type") not in {"path", "url", "process"}:
         allowed = {canonicalize(x) for x in expected.allowed_recipients}
         actual_recipients = {canonicalize(x) for x in actual.recipients}
         if actual_recipients and not actual_recipients.issubset(allowed):

@@ -13,6 +13,75 @@ def rule(query, date):
 
 
 class GuidanceTests(FixtureMixin, unittest.TestCase):
+    def test_reviewed_tool_notes_do_not_create_authority(self):
+        from adapters.agentdojo_pi.host import tool_description
+        name = "list_files"
+        description = tool_description(self.runtime.functions[name], self.manifest["tools"][name])
+        self.assertIn("shared_with", description)
+        host = self.host(rules=[])
+        self.assertIsNotNone(host.call("unauthorized", name, {})[1])
+        self.assertEqual(host.counts["executed"], 0)
+
+    def test_unpinned_or_malformed_usage_notes_rejected(self):
+        import json
+        from adapters.agentdojo_pi.host import load_manifest
+        for bad in ("not a list", [""], [1], ["x" * 801]):
+            manifest = copy.deepcopy(self.manifest)
+            manifest["tools"]["list_files"]["usage_notes"] = bad
+            path = self.root / "bad-manifest.json"
+            path.write_text(json.dumps(manifest))
+            with self.assertRaisesRegex(ValueError, "Usage notes"):
+                load_manifest(path, self.runtime)
+        manifest = copy.deepcopy(self.manifest)
+        del manifest["tools"]["list_files"]["schema_hash"]
+        path.write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, "Usage notes"):
+            load_manifest(path, self.runtime)
+
+    def test_array_and_optional_alternatives_enable_real_calendar_repair(self):
+        args = {"title": "Lunch", "start_time": "2024-05-19 12:00",
+                "end_time": "2024-05-19 13:00", "description": "Catch up over lunch",
+                "participants": ["sarah.connor@gmail.com"]}
+        rules = [{"tool": "create_calendar_event", "decision": "allow", "predicate": {
+            "op": "and", "args": [{"op": "eq", "field": "payload." + k, "value": v}
+                                      for k, v in args.items()]}}]
+        host = self.host(rules=rules, effect_profile={"allowed_recipients": ["sarah.connor@gmail.com"]})
+        _, error = host.call("wrong", "create_calendar_event", {**args, "location": "Invented place"})
+        self.assertIsNotNone(error)
+        self.assertEqual(host.counts["executed"], 0)
+        hints = host.last_feedback["parameter_candidates"]
+        self.assertEqual(len(hints), 2)
+        self.assertEqual(hints[0]["exact_arguments"]["participants"], args["participants"])
+        self.assertEqual({h["exact_arguments"]["location"] for h in hints}, {None, ""})
+        _, error = host.call("corrected", "create_calendar_event", hints[0]["exact_arguments"])
+        self.assertIsNone(error)
+        self.assertEqual(host.counts["executed"], 1)
+
+    def test_nested_values_are_preserved_but_bindings_are_never_exposed(self):
+        contracts = {"custom": SimpleNamespace(fields={"value": {}}, aliases={})}
+        value = {"recipients": ["one@example.test"], "options": {"notify": False}}
+        def sample(v):
+            return {"tool": "custom", "decision": "allow", "predicate": {
+                "op": "eq", "field": "payload.value", "value": v}}
+        rules = [sample(value)]
+        hints = parameter_candidates(rules, contracts)
+        self.assertEqual(hints[0]["exact_arguments"]["value"], value)
+        hints[0]["exact_arguments"]["value"]["recipients"].append("extra")
+        self.assertEqual(value["recipients"], ["one@example.test"])
+        self.assertEqual(parameter_candidates([sample({"nested": [{"$binding": "pending"}]})], contracts), [])
+
+    def test_finite_intersections_are_typed_and_large_products_omitted(self):
+        contracts = {"custom": SimpleNamespace(fields={"x": {}, "y": {}}, aliases={})}
+        def candidate(atoms):
+            return parameter_candidates([{"tool": "custom", "decision": "allow",
+                "predicate": {"op": "and", "args": atoms}}], contracts)
+        atoms = [{"op": "in", "field": "payload.x", "value": [False, 0]},
+                 {"op": "eq", "field": "payload.x", "value": 0}]
+        self.assertEqual(candidate(atoms), [{"tool": "custom", "exact_arguments": {"x": 0}}])
+        self.assertIs(type(candidate(atoms)[0]["exact_arguments"]["x"]), int)
+        self.assertEqual(candidate([{"op": "in", "field": "payload." + k, "value": list(range(5))}
+                                    for k in ("x", "y")]), [])
+
     def test_exact_values_help_repair_without_expanding_authority(self):
         rules = [rule("Yoga Class", None)]
         original = copy.deepcopy(rules)

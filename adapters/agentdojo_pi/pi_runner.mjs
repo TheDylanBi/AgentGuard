@@ -1,6 +1,7 @@
 // Private stdio worker. Only suite tools exist; policy lives in the Python host.
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
+import { errorDiagnostic, prepareRequest } from "./provider_diagnostics.mjs";
 
 const send = (value) => process.stdout.write(JSON.stringify(value) + "\n");
 const requests = new Map();
@@ -43,8 +44,16 @@ process.stdin.on("data", (chunk) => {
 });
 process.stdin.on("end", () => { if (requests.size) fail(new Error("Bridge disconnected")); });
 
-export function suiteExtension(tools) {
+export function suiteExtension(tools, model, budgetMode = "sdk") {
   return (pi) => {
+    pi.on("before_provider_request", (event) => {
+      const prepared = prepareRequest(event.payload, model, budgetMode);
+      send({ type: "provider_request", diagnostic: prepared.diagnostic });
+      return prepared.payload;
+    });
+    pi.on("after_provider_response", (event) => {
+      send({ type: "provider_response", status: event.status });
+    });
     for (const tool of tools) pi.registerTool({
       name: tool.name, label: tool.name, description: tool.description,
       parameters: tool.parameters,
@@ -87,10 +96,13 @@ async function main(config) {
   });
   const model = modelRuntime.getModel(config.provider, config.model);
   if (!model) throw new Error("Requested pi provider/model is unavailable; no fallback permitted");
+  // Validate outside extension handlers: pi may log handler errors and retain
+  // the original request. An unsupported explicit budget must not fall back.
+  if (config.actionOutputBudget === "model") prepareRequest({}, model, "model");
   const loader = new DefaultResourceLoader({
     cwd: config.scratch, agentDir: config.scratch, settingsManager,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-    extensionFactories: [suiteExtension(config.tools)],
+    extensionFactories: [suiteExtension(config.tools, model, config.actionOutputBudget)],
     systemPromptOverride: () => config.systemPrompt,
     appendSystemPromptOverride: () => [], agentsFilesOverride: () => ({ agentsFiles: [] }),
   });
@@ -131,7 +143,8 @@ async function main(config) {
       if (["error", "aborted"].includes(message.stopReason)) invalid = "Model call failed or aborted";
       if (++turns > config.maxTurns + (finalizing ? 1 : 0)) { invalid = "Turn limit exceeded"; session.abort(); }
       send({ type: "assistant", content: message.content, stopReason: message.stopReason,
-        usage: { input: message.usage?.input, output: message.usage?.output } });
+        usage: { input: message.usage?.input, output: message.usage?.output },
+        ...(message.errorMessage ? { providerError: errorDiagnostic(message.errorMessage) } : {}) });
     }
   });
   send({ type: "ready", tools: actual, provider: model.provider, model: model.id });

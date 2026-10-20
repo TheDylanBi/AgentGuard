@@ -17,6 +17,15 @@ class IntentStageError(RuntimeError):
         self.diagnostic = diagnostic
         super().__init__("Intent stage failed: " + json.dumps(diagnostic))
 
+    @property
+    def task_local(self):
+        # A diagnosed policy conflict is not evidence of provider unavailability.
+        return (self.diagnostic.get("status") in {"invalid_rule_schema", "invalid_rule_semantics"} or
+                (self.diagnostic.get("status") == "invalid_output" and
+                 self.diagnostic.get("http_status") == 200 and
+                 self.diagnostic.get("output_error") == "truncated_output" and
+                 self.diagnostic.get("finish_reason") == "length"))
+
 
 def parse_final_json(content):
     if not isinstance(content, str) or not content.strip():

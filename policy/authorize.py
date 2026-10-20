@@ -31,7 +31,7 @@ def authorize_action(action, *, capability: Optional[Dict], engine,
                      certificate=None, certificate_verifier=None,
                      llm_danger=None, llm_reason=None,
                      enable_rules: bool = True,
-                     require_capability: bool = True) -> Dict:
+                     require_capability: bool = True, resolved_recipients=None) -> Dict:
     """Decide BLOCK/CONFIRM/ALLOW for one tool call.
 
     Returns the same dict shape as ``PolicyEngine.evaluate`` so callers can
@@ -57,6 +57,7 @@ def authorize_action(action, *, capability: Optional[Dict], engine,
         actual = extract_actual_effect(
             action.type, action.target,
             getattr(action, "payload", None) or {}, capability, taint_state,
+            resolved_recipients=resolved_recipients,
         )
         alignment = check_behavior_alignment(expected, actual, capability, taint_state)
         if not alignment["aligned"]:

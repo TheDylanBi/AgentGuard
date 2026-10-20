@@ -21,6 +21,60 @@ def failure():
 
 
 class EvaluationErrorTests(unittest.TestCase):
+    def test_confirmed_intent_truncation_does_not_trip_service_breaker(self):
+        diagnostic = {"stage": "rules", "status": "invalid_output", "http_status": 200,
+                      "finish_reason": "length", "output_error": "truncated_output"}
+        def run(pipeline, task, *args, **kwargs):
+            if task.ID != "user_task_3":
+                raise IntentStageError(diagnostic)
+            return True, False
+        suite, _, pipeline = self.fixture(run, count=4)
+        updates = []
+        with tempfile.TemporaryDirectory() as folder, OutputLogger(folder):
+            result = benchmark_with_task_errors(pipeline, suite, on_update=lambda s: updates.append(copy.deepcopy(s)))
+        self.assertEqual(len(result["utility_results"]), 1)
+        self.assertEqual(len(updates[-1]["task_errors"]), 3)
+        self.assertTrue(all(row["error_scope"] == "task" for row in updates[-1]["task_errors"]))
+        for change in ({"http_status": 503}, {"status": "network_error"}, {"finish_reason": "stop"}):
+            self.assertFalse(IntentStageError({**diagnostic, **change}).task_local)
+
+    def test_policy_conflicts_remain_unscored_and_do_not_stop_other_tasks(self):
+        def run(*a, **k):
+            raise IntentStageError({"stage": "rules", "status": "invalid_rule_semantics"})
+        suite, _, pipeline = self.fixture(run, count=4)
+        updates = []
+        with tempfile.TemporaryDirectory() as folder, OutputLogger(folder):
+            result = benchmark_with_task_errors(pipeline, suite, on_update=lambda s: updates.append(copy.deepcopy(s)))
+        self.assertEqual(result["utility_results"], {})
+        self.assertEqual(len(updates[-1]["task_errors"]), 4)
+        self.assertTrue(all(row["utility"] is None for row in updates[-1]["task_outcomes"]))
+
+    def test_three_task_local_failures_do_not_trip_service_breaker(self):
+        def run(pipeline, task, *args, **kwargs):
+            if task.ID != "user_task_3":
+                raise ActionModelError({"stage": "action", "status": "context_limit"})
+            return True, False
+        suite, _, pipeline = self.fixture(run, count=4)
+        updates = []
+        with tempfile.TemporaryDirectory() as folder, OutputLogger(folder):
+            result = benchmark_with_task_errors(pipeline, suite, on_update=lambda s: updates.append(copy.deepcopy(s)))
+        self.assertEqual(len(result["utility_results"]), 1)
+        self.assertEqual(len(updates[-1]["task_errors"]), 3)
+        self.assertTrue(all(e["error_scope"] == "task" for e in updates[-1]["task_errors"]))
+        metadata = {}
+        record_results(metadata, result, [], has_attack=True, state=updates[-1])
+        self.assertIsNone(metadata["metrics"]["attack_success_rate"])
+
+    def test_provider_errors_still_stop_and_persist_reason(self):
+        def run(*a, **k):
+            raise ActionModelError({"stage": "action", "status": "provider_error_or_aborted"})
+        suite, _, pipeline = self.fixture(run, count=4)
+        updates = []
+        with tempfile.TemporaryDirectory() as folder, OutputLogger(folder):
+            with self.assertRaises(ConsecutiveTaskErrors):
+                benchmark_with_task_errors(pipeline, suite, on_update=lambda s: updates.append(copy.deepcopy(s)))
+        self.assertEqual(updates[-1]["halt_reason"]["count"], 3)
+        self.assertEqual(len(updates[-1]["task_outcomes"]), 3)
     def test_truncated_action_is_unscored_and_other_task_continues(self):
         def run(pipeline, task, *args, **kwargs):
             if task.ID == "user_task_0":
