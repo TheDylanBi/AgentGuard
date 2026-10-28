@@ -2,9 +2,11 @@
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 import { errorDiagnostic, prepareRequest } from "./provider_diagnostics.mjs";
+import { planningContextView } from "./context_view.mjs";
 
 const send = (value) => process.stdout.write(JSON.stringify(value) + "\n");
 const requests = new Map();
+const checkpoints = new Map();
 const proposals = new Map();
 let buffer = "", started = false, toolQueue = Promise.resolve();
 let session, finalizing = false;
@@ -14,6 +16,8 @@ function fail(error) {
   session?.abort();
   for (const { reject } of requests.values()) reject(new Error("Bridge stopped"));
   requests.clear();
+  for (const { reject } of checkpoints.values()) reject(new Error("Bridge stopped"));
+  checkpoints.clear();
   process.stdin.destroy();
 }
 process.stdin.setEncoding("utf8");
@@ -38,17 +42,27 @@ process.stdin.on("data", (chunk) => {
         const entry = requests.get(message.id);
         requests.delete(message.id);
         entry.resolve(message);
+      } else if (message.type === "checkpoint_result" && checkpoints.has(message.id)) {
+        const entry = checkpoints.get(message.id);
+        checkpoints.delete(message.id);
+        entry.resolve(message);
       } else throw new Error("Unexpected bridge message");
     } catch (error) { fail(error); }
   }
 });
-process.stdin.on("end", () => { if (requests.size) fail(new Error("Bridge disconnected")); });
+process.stdin.on("end", () => { if (requests.size || checkpoints.size) fail(new Error("Bridge disconnected")); });
 
 export function suiteExtension(tools, model, budgetMode = "sdk") {
   return (pi) => {
+    let contextView;
+    pi.on('context', event => {
+      const prepared = planningContextView(event.messages);
+      contextView = prepared.diagnostic;
+      return { messages: prepared.messages };
+    });
     pi.on("before_provider_request", (event) => {
       const prepared = prepareRequest(event.payload, model, budgetMode);
-      send({ type: "provider_request", diagnostic: prepared.diagnostic });
+      send({ type: "provider_request", diagnostic: { ...prepared.diagnostic, context_view: contextView } });
       return prepared.payload;
     });
     pi.on("after_provider_response", (event) => {
@@ -143,14 +157,30 @@ async function main(config) {
       if (["error", "aborted"].includes(message.stopReason)) invalid = "Model call failed or aborted";
       if (++turns > config.maxTurns + (finalizing ? 1 : 0)) { invalid = "Turn limit exceeded"; session.abort(); }
       send({ type: "assistant", content: message.content, stopReason: message.stopReason,
-        usage: { input: message.usage?.input, output: message.usage?.output },
+        usage: { input: message.usage?.input, output: message.usage?.output,
+          cacheRead: message.usage?.cacheRead, cacheWrite: message.usage?.cacheWrite, totalTokens: message.usage?.totalTokens },
         ...(message.errorMessage ? { providerError: errorDiagnostic(message.errorMessage) } : {}) });
     }
   });
   send({ type: "ready", tools: actual, provider: model.provider, model: model.id });
-  await session.prompt(config.query);
-  if (invalid) throw new Error(invalid);
-  await toolQueue;
+  let prompt = config.query, checkpointIndex = 0;
+  while (true) {
+    await session.prompt(prompt);
+    if (invalid) throw new Error(invalid);
+    await toolQueue;
+    if (!config.completionCheckpoint || finalizing) break;
+    const id = `checkpoint:${checkpointIndex++}`;
+    const response = await new Promise((resolve, reject) => {
+      checkpoints.set(id, { resolve, reject });
+      send({ type: "checkpoint", id });
+    });
+    if (response.action === "finish") break;
+    if (response.action !== "reconcile" || checkpointIndex !== 1 || typeof response.text !== "string")
+      throw new Error("Invalid or repeated completion checkpoint");
+    // Controller feedback is not an additional benchmark user authorization.
+    // Python retains the immutable original request for EVERY safety check.
+    prompt = response.text;
+  }
   send({ type: "done" });
   session.dispose();
   process.stdin.destroy();

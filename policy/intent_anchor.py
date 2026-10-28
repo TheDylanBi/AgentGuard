@@ -51,7 +51,8 @@ def _llm_config() -> dict:
     }
 
 
-def _chat(system: str, user: str, temperature: float = 0.0, *, output_schema=None):
+def _chat(system: str, user: str, temperature: float = 0.0, *, output_schema=None, timeout_seconds=None,
+          request_options=None):
     """One chat completion against the independent LLM. None on failure."""
     cfg = _llm_config()
     diagnostic = {"status": "missing_key", "timeout_seconds": 30}
@@ -64,6 +65,10 @@ def _chat(system: str, user: str, temperature: float = 0.0, *, output_schema=Non
         timeout = float(os.environ.get("ICB_INTENT_LLM_TIMEOUT_SECONDS", "30"))
         if not math.isfinite(timeout) or not 0 < timeout <= 600:
             raise ValueError("Invalid timeout")
+        if timeout_seconds is not None:
+            if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+                raise ValueError("Invalid remaining timeout")
+            timeout = min(timeout, timeout_seconds)
     except ValueError:
         diagnostic["status"] = "invalid_timeout_config"
         return None
@@ -73,14 +78,20 @@ def _chat(system: str, user: str, temperature: float = 0.0, *, output_schema=Non
         {"role": "system", "content": system}, {"role": "user", "content": user}],
         "temperature": temperature}
     try:
-        output_format = os.environ.get("ICB_INTENT_LLM_OUTPUT_FORMAT", "text")
-        if output_format not in ("text", "json_object", "vllm_guided_json"):
+        options = request_options or {}
+        output_format = options.get('output_format', os.environ.get("ICB_INTENT_LLM_OUTPUT_FORMAT", "text"))
+        if output_format not in ("text", "json_object", "vllm_guided_json", "json_schema"):
             raise ValueError("Unknown output format")
         if output_format == "json_object":
             body["response_format"] = {"type": "json_object"}
+        elif output_format == "json_schema":
+            if not output_schema:
+                raise ValueError('Strict output needs a schema')
+            body['response_format'] = {'type':'json_schema', 'json_schema':{
+                'name':'icb_output', 'strict':True, 'schema':output_schema}}
         elif output_format == "vllm_guided_json":
             body["guided_json"] = output_schema or {"type": "object"}
-        compact = os.environ.get("ICB_INTENT_LLM_COMPACT_JSON", "false")
+        compact = options.get('compact_json', os.environ.get("ICB_INTENT_LLM_COMPACT_JSON", "false"))
         if compact not in ("true", "false") or (compact == "true" and output_format != "vllm_guided_json"):
             raise ValueError("Compact JSON requires vLLM guided JSON")
         if compact == "true":
@@ -88,18 +99,32 @@ def _chat(system: str, user: str, temperature: float = 0.0, *, output_schema=Non
             # request-level backend different from its startup configuration.
             # Backends may differ in whitespace support; never relax parsing.
             body["guided_whitespace_pattern"] = r"[ ]?"
-        thinking = os.environ.get("ICB_INTENT_LLM_ENABLE_THINKING")
+        thinking = options.get('thinking', os.environ.get("ICB_INTENT_LLM_ENABLE_THINKING"))
         if thinking is not None:
             if thinking not in ("true", "false"):
                 raise ValueError("Invalid thinking setting")
             body["chat_template_kwargs"] = {"enable_thinking": thinking == "true"}
-        max_tokens = os.environ.get("ICB_INTENT_LLM_MAX_TOKENS")
+        effort = options.get('reasoning_effort')
+        if effort is not None:
+            if effort not in ('none','minimal','low','medium','high'):
+                raise ValueError('Invalid reasoning effort')
+            body['reasoning_effort'] = effort
+        # DeepSeek-compatible top-level toggle is distinct from vLLM's
+        # chat_template_kwargs and from reasoning_effort. Never guess by URL.
+        thinking_mode = options.get('thinking_mode')
+        if thinking_mode is not None:
+            if (thinking_mode not in ('enabled','disabled') or thinking is not None
+                    or thinking_mode == 'disabled' and effort is not None):
+                raise ValueError('Conflicting or invalid thinking mode')
+            body['thinking'] = {'type':thinking_mode}
+        max_tokens = options.get('max_tokens', os.environ.get("ICB_INTENT_LLM_MAX_TOKENS"))
         if max_tokens is not None:
             limit = int(max_tokens)
             if not 1 <= limit <= 16384:
                 raise ValueError("Invalid output budget")
             body["max_tokens"] = limit
         diagnostic.update(output_format=output_format, thinking=thinking,
+                          reasoning_effort=effort, thinking_mode=thinking_mode,
                           compact_json=compact == "true",
                           max_tokens=body.get("max_tokens"))
     except ValueError:
@@ -119,10 +144,20 @@ def _chat(system: str, user: str, temperature: float = 0.0, *, output_schema=Non
         resp.raise_for_status()
         response_data = resp.json()
         choice = response_data["choices"][0]
-        finish = choice.get("finish_reason")
-        if finish in ("stop", "length", "content_filter", "tool_calls"):
+        finish = choice.get("finish_reason", choice.get('stop_reason'))
+        if finish in ("stop", "length", "content_filter", "tool_calls", 'max_tokens', 'MAX_TOKENS'):
             diagnostic["finish_reason"] = finish
+        if response_data.get('status') == 'incomplete':
+            diagnostic['generation_incomplete'] = True
+        if choice.get('message',{}).get('refusal'):
+            diagnostic['status'] = 'model_refusal'
+            return None
         raw_content = choice["message"]["content"]
+        if raw_content is None and (finish in ('length','max_tokens','MAX_TOKENS') or diagnostic.get('generation_incomplete')):
+            raw_content = ''
+        reasoning = choice['message'].get('reasoning_content')
+        if isinstance(reasoning,str):
+            diagnostic['reasoning_chars']=len(reasoning)
         content = raw_content.strip()
         diagnostic.update(status="response_received", response_chars=len(content),
                           raw_response_chars=len(raw_content),
@@ -130,6 +165,9 @@ def _chat(system: str, user: str, temperature: float = 0.0, *, output_schema=Non
                           trailing_whitespace_chars=len(raw_content) - len(raw_content.rstrip()))
         usage = response_data.get("usage")
         if isinstance(usage, dict):
+            details=usage.get('completion_tokens_details')
+            if isinstance(details,dict) and type(details.get('reasoning_tokens')) is int:
+                diagnostic['reasoning_tokens']=details['reasoning_tokens']
             for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
                 value = usage.get(key)
                 if type(value) is int and value >= 0:
@@ -186,16 +224,21 @@ def _output_failure(code):
     return None
 
 
-def _json_response(system, user, schema):
+def _json_response(system, user, schema, *, timeout_seconds=None, request_options=None):
     _CHAT_DIAGNOSTIC.set(None)
-    content = _chat(system, user, output_schema=schema)
+    options = {} if timeout_seconds is None else {"timeout_seconds": timeout_seconds}
+    if request_options is not None:
+        options['request_options'] = request_options
+    content = _chat(system, user, output_schema=schema, **options)
     if content is None:
         return None
     diagnostic = intent_request_diagnostic()
     diagnostic["response_sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
     _CHAT_DIAGNOSTIC.set(diagnostic)
-    if diagnostic.get("finish_reason") == "length":
+    if diagnostic.get("finish_reason") in ("length", 'max_tokens', 'MAX_TOKENS') or diagnostic.get('generation_incomplete'):
         return _output_failure("truncated_output")
+    if diagnostic.get('finish_reason') in ('content_filter','tool_calls'):
+        return _output_failure('unexpected_finish_reason')
     try:
         return _parse_json(content)
     except IntentOutputError as error:

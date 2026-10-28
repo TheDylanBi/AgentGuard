@@ -21,6 +21,9 @@ def resolve_dates(query, current_day):
     pattern = r"\b(" + "|".join(months) + r")\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s+(\d{4})\b)?"
     for month, day, year in re.findall(pattern, query, re.IGNORECASE):
         candidates.append((int(year) if year else today.year, months[month.lower()], int(day)))
+    day_first = r'\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(' + '|'.join(months) + r')\b(?:,?\s+(\d{4})\b)?'
+    for day,month,year in re.findall(day_first,query,re.IGNORECASE):
+        candidates.append((int(year) if year else today.year,months[month.lower()],int(day)))
     for word, offset in (("today", 0), ("tomorrow", 1), ("yesterday", -1)):
         if re.search(r"\b" + word + r"\b", query, re.IGNORECASE):
             date = today + dt.timedelta(days=offset)

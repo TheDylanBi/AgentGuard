@@ -1,0 +1,718 @@
+{
+  "version": 1,
+  "suite": "banking",
+  "tools": {
+    "get_iban": {
+      "capability": {
+        "actions": [
+          "get_iban"
+        ],
+        "sensitive_params": [],
+        "sources": [
+          "financial",
+          "PII",
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:7333fd18c2db12c3196e00d370f75f67cace35fffbf345804da66d8f5f8bb471",
+      "parameter_roles": {},
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "bank_account",
+        "fields": {},
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      }
+    },
+    "send_money": {
+      "capability": {
+        "actions": [
+          "send_money"
+        ],
+        "sensitive_params": [
+          "recipient",
+          "amount",
+          "subject",
+          "date"
+        ],
+        "persistence": "allowed",
+        "effect_type": "financial_transfer",
+        "target_type": "recipient",
+        "financial_transfer": "allowed"
+      },
+      "schema_hash": "sha256:0239c5bbf08f0c3f3a0bb982dacf3dee705c98c7f94fcc79f1fb7168daadd8e5",
+      "parameter_roles": {
+        "recipient": {
+          "role": "destination",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "amount": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "subject": {
+          "role": "content",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "date": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "send",
+        "resource_type": "transaction",
+        "fields": {
+          "recipient": "recipient",
+          "amount": "amount",
+          "subject": "subject",
+          "date": "date"
+        },
+        "effects": [
+          "update",
+          "financial_transfer"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "target_field": "recipient",
+      "parameter_evidence": {
+        "execution_date_parameter": "date",
+        "document_payment": {"amount_parameter":"amount","recipient_parameter":"recipient"},
+        "account": [
+          "bank_account",
+          "iban"
+        ],
+        "fields": {
+          "recipient": {
+            "label": "bank_transaction",
+            "field": "sender",
+            "type": "account"
+          },
+          "amount": {
+            "label": "bank_transaction",
+            "field": "amount",
+            "type": "money",
+            "where_parameters": {
+              "sender": "recipient"
+            }
+          }
+        },
+        "descriptive_fields": [
+          "subject"
+        ],
+        "reason": "Exact native transaction fields can support a proposed payment/refund; selecting the transaction, payee, amount, date and purpose still requires fresh user-authority and data-flow review. No document-text accounts or invented arithmetic.",
+        "calculations": [
+          {
+            "parameter": "amount",
+            "label": "bank_transaction",
+            "field": "amount",
+            "payee_parameter": "recipient",
+            "payee_field": "sender",
+            "operation": "refund_difference"
+          },
+          {
+            "parameter": "amount",
+            "label": "bank_transaction",
+            "field": "amount",
+            "payee_parameter": "recipient",
+            "payee_field": "recipient",
+            "operation": "percentage_plus_fee"
+          }
+        ]
+      }
+    },
+    "schedule_transaction": {
+      "capability": {
+        "actions": [
+          "schedule_transaction"
+        ],
+        "sensitive_params": [
+          "recipient",
+          "amount",
+          "subject",
+          "date",
+          "recurring"
+        ],
+        "persistence": "allowed",
+        "effect_type": "financial_transfer",
+        "target_type": "recipient",
+        "financial_transfer": "allowed"
+      },
+      "schema_hash": "sha256:f8babcc0d7c62e9bec8a50d1d3a35df34ac7ebfa5add44cc98ed231952af0c22",
+      "parameter_roles": {
+        "recipient": {
+          "role": "destination",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "amount": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "subject": {
+          "role": "content",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "date": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "recurring": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "create",
+        "resource_type": "transaction",
+        "fields": {
+          "recipient": "recipient",
+          "amount": "amount",
+          "subject": "subject",
+          "date": "date",
+          "recurring": "recurring"
+        },
+        "effects": [
+          "create",
+          "financial_transfer"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "target_field": "recipient"
+    },
+    "update_scheduled_transaction": {
+      "capability": {
+        "actions": [
+          "update_scheduled_transaction"
+        ],
+        "sensitive_params": [
+          "id",
+          "recipient",
+          "amount",
+          "subject",
+          "date",
+          "recurring"
+        ],
+        "persistence": "allowed",
+        "effect_type": "financial_transfer",
+        "target_type": "object",
+        "financial_transfer": "allowed"
+      },
+      "schema_hash": "sha256:21ec613352138f736fb63bfc18b7aaaef4763391eb1df4db1a46a6f1d14270ff",
+      "parameter_roles": {
+        "id": {
+          "role": "resource",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "recipient": {
+          "role": "destination",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "amount": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "subject": {
+          "role": "content",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "date": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "recurring": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "update",
+        "resource_type": "transaction",
+        "fields": {
+          "id": "id",
+          "recipient": "recipient",
+          "amount": "amount",
+          "subject": "subject",
+          "date": "date",
+          "recurring": "recurring"
+        },
+        "effects": [
+          "update",
+          "financial_transfer"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "target_field": "id",
+      "parameter_semantics": {
+        "recipient": {
+          "mode": "no_additional_effect",
+          "values": [
+            null
+          ],
+          "reason": "The reviewed implementation leaves this field unchanged when its optional value is None."
+        },
+        "amount": {
+          "mode": "no_additional_effect",
+          "values": [
+            null
+          ],
+          "reason": "The reviewed implementation leaves this field unchanged when its optional value is None."
+        },
+        "subject": {
+          "mode": "no_additional_effect",
+          "values": [
+            null
+          ],
+          "reason": "The reviewed implementation leaves this field unchanged when its optional value is None."
+        },
+        "date": {
+          "mode": "no_additional_effect",
+          "values": [
+            null
+          ],
+          "reason": "The reviewed implementation leaves this field unchanged when its optional value is None."
+        },
+        "recurring": {
+          "mode": "no_additional_effect",
+          "values": [
+            null
+          ],
+          "reason": "The reviewed implementation leaves this field unchanged when its optional value is None."
+        }
+      },
+      "parameter_evidence": {
+        "account": [
+          "bank_account",
+          "iban"
+        ],
+        "fields": {},
+        "descriptive_fields": [],
+        "record_binding": {
+          "label": "scheduled_transaction",
+          "key_parameter": "id",
+          "fields": {
+            "id": "id",
+            "recipient": "recipient",
+            "amount": "amount",
+            "subject": "subject",
+            "date": "date",
+            "recurring": "recurring"
+          }
+        },
+        "reason": "Bind an already observed current-account native record ID and exact unchanged fields. Changed fields require their own evidence. Record identity, arithmetic and preservation never grant authority to modify a payment or create a new recipient.",
+        "calculations": [
+          {
+            "parameter": "amount",
+            "label": "scheduled_transaction",
+            "field": "amount",
+            "key_parameter": "id",
+            "operation": "increase_by"
+          }
+        ]
+      },
+      "usage_notes": [
+        "Partial update: omitted optional fields or None leave the existing values unchanged. Supply only the fields the user asked to change. This simulator also ignores false, zero or empty optional values, so do not claim those cleared a field. Tool usage does not supply authorization or missing business facts."
+      ],
+      "effect_recipients": {
+        "collection_path": [
+          "bank_account",
+          "scheduled_transactions"
+        ],
+        "argument": "id",
+        "key_field": "id",
+        "recipients_field": "recipient",
+        "recipient_argument": "recipient",
+        "reason": "Resolve the existing native record recipient when unchanged; otherwise the full proposed recipient. The exact record and proposed change must still pass provenance, hard policy and call review."
+      }
+    },
+    "get_balance": {
+      "capability": {
+        "actions": [
+          "get_balance"
+        ],
+        "sensitive_params": [],
+        "sources": [
+          "financial",
+          "PII",
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:4f892265a20e0f195b3c48bd894e28736a6b97bdc4300684f7d5c42fa279e3fe",
+      "parameter_roles": {},
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "bank_account",
+        "fields": {},
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "resolution_read": {
+        "namespace": [
+          "bank_account",
+          "iban"
+        ],
+        "collections": [
+          [
+            "bank_account"
+          ]
+        ],
+        "reason": "Reviewed native current-account read, without writes, network or execution. Necessary task resolution and resource authority still require independent per-call review."
+      }
+    },
+    "get_most_recent_transactions": {
+      "capability": {
+        "actions": [
+          "get_most_recent_transactions"
+        ],
+        "sensitive_params": [
+          "n"
+        ],
+        "sources": [
+          "financial",
+          "PII",
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:45ec3b60fceb6b56509c240ba38ffb983dc7b151fa812630366f63d4a919b01f",
+      "parameter_roles": {
+        "n": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "list",
+        "resource_type": "transaction",
+        "fields": {
+          "n": "n"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "typed_results": [
+        {
+          "label": "bank_transaction",
+          "path": [
+            "*"
+          ],
+          "collection": [
+            "bank_account",
+            "transactions"
+          ],
+          "key": "id",
+          "account": [
+            "bank_account",
+            "iban"
+          ],
+          "fields": {
+            "amount": "money",
+            "date": "date",
+            "sender": "account",
+            "recipient": "account",
+            "subject": "text",
+            "id": "identifier",
+            "recurring": "boolean"
+          },
+          "scale": 2,
+          "reason": "Observed native transaction must match the current task-local authoritative account record; the benchmark omits ISO currency, so amounts use that account namespace as their unit."
+        }
+      ],
+      "resolution_read": {
+        "namespace": [
+          "bank_account",
+          "iban"
+        ],
+        "collections": [
+          [
+            "bank_account",
+            "transactions"
+          ]
+        ],
+        "reason": "Reviewed native current-account read, without writes, network or execution. Necessary task resolution and resource authority still require independent per-call review."
+      }
+    },
+    "get_scheduled_transactions": {
+      "capability": {
+        "actions": [
+          "get_scheduled_transactions"
+        ],
+        "sensitive_params": [],
+        "sources": [
+          "financial",
+          "PII",
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:c6d92671db1e744f0f03dd992bc6115e377763298470f117fdaf9547bbdaef47",
+      "parameter_roles": {},
+      "semantic_action": {
+        "version": 1,
+        "operation": "list",
+        "resource_type": "transaction",
+        "fields": {},
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "typed_results": [
+        {
+          "label": "scheduled_transaction",
+          "path": [
+            "*"
+          ],
+          "collection": [
+            "bank_account",
+            "scheduled_transactions"
+          ],
+          "key": "id",
+          "account": [
+            "bank_account",
+            "iban"
+          ],
+          "fields": {
+            "amount": "money",
+            "date": "date",
+            "sender": "account",
+            "recipient": "account",
+            "subject": "text",
+            "id": "identifier",
+            "recurring": "boolean"
+          },
+          "scale": 2,
+          "reason": "Observed native transaction must match the current task-local authoritative account record; the benchmark omits ISO currency, so amounts use that account namespace as their unit."
+        }
+      ],
+      "resolution_read": {
+        "namespace": [
+          "bank_account",
+          "iban"
+        ],
+        "collections": [
+          [
+            "bank_account",
+            "scheduled_transactions"
+          ]
+        ],
+        "reason": "Reviewed native current-account read, without writes, network or execution. Necessary task resolution and resource authority still require independent per-call review."
+      }
+    },
+    "read_file": {
+      "usage_notes": [
+        "file_path is an exact key in the task-local simulated file map, not a host operating-system path. Use the filename/key supplied by the original user verbatim. Do not prepend the working directory, a temporary directory or a drive, and do not normalize its slashes or spelling. This function cannot read the real host filesystem; an unknown key is not permission to probe other resources."
+      ],
+      "capability": {
+        "actions": [
+          "read_file"
+        ],
+        "sensitive_params": [
+          "file_path"
+        ],
+        "sources": [
+          "financial",
+          "PII",
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:83a929017a1b1a97578d39cac6fe324d2b8401a9c4a7f36a39a04d2322c550af",
+      "parameter_roles": {
+        "file_path": {
+          "role": "resource",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "virtual_file",
+        "fields": {
+          "file_path": "file_path"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "target_field": "file_path",
+      "virtual_resource": {
+        "parameter": "file_path",
+        "collection": [
+          "filesystem",
+          "files"
+        ],
+        "reason": "This benchmark function reads only the task-local simulated map. It has no host filesystem access; match exact existing keys rather than OS paths."
+      },
+      "result_values": [
+        {
+          "label": "business_text",
+          "path": [],
+          "namespace": ["bank_account", "iban"]
+        }
+      ]
+    },
+    "get_user_info": {
+      "capability": {
+        "actions": [
+          "get_user_info"
+        ],
+        "sensitive_params": [],
+        "sources": [
+          "financial",
+          "PII",
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:4264a3bc2b8171c640e6d13da9dbc2ed9d58ee3eb4e10abb8da46034569f7565",
+      "parameter_roles": {},
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "user_account",
+        "fields": {},
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      }
+    },
+    "update_password": {
+      "capability": {
+        "actions": [
+          "update_password"
+        ],
+        "sensitive_params": [
+          "password"
+        ],
+        "persistence": "allowed",
+        "effect_type": "data_mutation",
+        "target_type": "object"
+      },
+      "schema_hash": "sha256:b68ba67137913c27bac43e0b2bc1a5939c6697f2887e1492a4f883ace188d3f6",
+      "parameter_roles": {
+        "password": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "update",
+        "resource_type": "credential",
+        "fields": {
+          "password": "password"
+        },
+        "effects": [
+          "update"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "dataflow_mode": "initial_arguments",
+      "audit_secret_parameters": [
+        "password"
+      ]
+    },
+    "update_user_info": {
+      "capability": {
+        "actions": [
+          "update_user_info"
+        ],
+        "sensitive_params": [
+          "first_name",
+          "last_name",
+          "street",
+          "city"
+        ],
+        "persistence": "allowed",
+        "effect_type": "data_mutation",
+        "target_type": "object"
+      },
+      "schema_hash": "sha256:dd70cdecc6657d3cda5da25b881e63e009ff2328ff23a2faac1977b3aaf26dee",
+      "parameter_roles": {
+        "first_name": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "last_name": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "street": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "city": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "update",
+        "resource_type": "user_account",
+        "fields": {
+          "first_name": "first_name",
+          "last_name": "last_name",
+          "street": "street",
+          "city": "city"
+        },
+        "effects": [
+          "update"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "parameter_semantics": {
+        "first_name": {
+          "mode": "no_additional_effect",
+          "values": [
+            null
+          ],
+          "reason": "The reviewed implementation leaves this field unchanged when its optional value is None."
+        },
+        "last_name": {
+          "mode": "no_additional_effect",
+          "values": [
+            null
+          ],
+          "reason": "The reviewed implementation leaves this field unchanged when its optional value is None."
+        },
+        "street": {
+          "mode": "no_additional_effect",
+          "values": [
+            null
+          ],
+          "reason": "The reviewed implementation leaves this field unchanged when its optional value is None."
+        },
+        "city": {
+          "mode": "no_additional_effect",
+          "values": [
+            null
+          ],
+          "reason": "The reviewed implementation leaves this field unchanged when its optional value is None."
+        }
+      },
+      "review_data_use": {
+        "content_fields": [],
+        "semantic_resources": false,
+        "flow_review": true,
+        "control_fields": {
+          "first_name": "derived_text",
+          "last_name": "derived_text",
+          "street": "derived_text",
+          "city": "derived_text"
+        },
+        "reason": "Account profile updates may use observed business facts only after exact per-call user authorization; this grants no password or transaction permission."
+      }
+    }
+  }
+}

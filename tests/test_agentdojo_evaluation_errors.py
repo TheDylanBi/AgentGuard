@@ -21,6 +21,20 @@ def failure():
 
 
 class EvaluationErrorTests(unittest.TestCase):
+    def test_review_errors_are_unscored_not_defense_success(self):
+        from policy.call_review import ReviewStageError
+        def run(*args, **kwargs):
+            raise ReviewStageError({"stage": "review", "status": "invalid_review"})
+        suite, _, pipeline = self.fixture(run, count=4)
+        updates = []
+        with tempfile.TemporaryDirectory() as folder, OutputLogger(folder):
+            result = benchmark_with_task_errors(pipeline, suite,
+                on_update=lambda state: updates.append(copy.deepcopy(state)))
+        self.assertEqual(result["utility_results"], {})
+        self.assertEqual(len(updates[-1]["task_errors"]), 4)
+        self.assertTrue(all(r["utility"] is None and r["security"] is None
+                            for r in updates[-1]["task_outcomes"]))
+
     def test_confirmed_intent_truncation_does_not_trip_service_breaker(self):
         diagnostic = {"stage": "rules", "status": "invalid_output", "http_status": 200,
                       "finish_reason": "length", "output_error": "truncated_output"}

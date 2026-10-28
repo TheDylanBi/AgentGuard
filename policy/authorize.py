@@ -15,10 +15,25 @@ A behavior misalignment is a hard BLOCK (the actual effect is NOT a subset of
 of the expected effect). No LLM judges individual actions.
 """
 from typing import Any, Dict, Optional
-
 from .effect_model import build_expected_effect
 from .behavior import extract_actual_effect
 from .behavior_alignment import check_behavior_alignment
+
+
+def check_hard_boundaries(action, *, capability, engine, taint_state=None,
+                          resolved_recipients=None, **kwargs):
+    """Non-authorizing gate for an independent per-call semantic reviewer."""
+    decision = engine.check_hard(action, capability=capability, taint_state=taint_state, **kwargs)
+    if decision["verdict"] != "PASS":
+        return decision
+    expected = build_expected_effect({}, capability, action.type)
+    actual = extract_actual_effect(action.type, action.target, action.payload, capability,
+                                  taint_state, resolved_recipients=resolved_recipients)
+    alignment = check_behavior_alignment(expected, actual, capability, taint_state)
+    if not alignment["aligned"]:
+        return {"verdict": "BLOCK", "rule": "capability.effects",
+                "reason": "Effects exceed independently declared capability: " + ",".join(alignment["violations"])}
+    return decision
 
 
 def authorize_action(action, *, capability: Optional[Dict], engine,
@@ -31,7 +46,8 @@ def authorize_action(action, *, capability: Optional[Dict], engine,
                      certificate=None, certificate_verifier=None,
                      llm_danger=None, llm_reason=None,
                      enable_rules: bool = True,
-                     require_capability: bool = True, resolved_recipients=None) -> Dict:
+                     require_capability: bool = True, resolved_recipients=None,
+                     taint_reference_fields=()) -> Dict:
     """Decide BLOCK/CONFIRM/ALLOW for one tool call.
 
     Returns the same dict shape as ``PolicyEngine.evaluate`` so callers can
@@ -45,6 +61,7 @@ def authorize_action(action, *, capability: Optional[Dict], engine,
         certificate_verifier=certificate_verifier,
         llm_danger=llm_danger, llm_reason=llm_reason,
         enable_rules=enable_rules, require_capability=require_capability,
+        taint_reference_fields=taint_reference_fields,
     )
 
     if decision["verdict"] == "BLOCK":

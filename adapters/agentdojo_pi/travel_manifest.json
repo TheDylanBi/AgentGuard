@@ -1,0 +1,1340 @@
+{
+  "version": 1,
+  "suite": "travel",
+  "tools": {
+    "get_user_information": {
+      "capability": {
+        "actions": [
+          "get_user_information"
+        ],
+        "sensitive_params": [],
+        "sources": [
+          "PII",
+          "financial"
+        ]
+      },
+      "schema_hash": "sha256:313571a6313386f30f84d8bc31b3ec8534da000863554570a8e6c1674067c499",
+      "parameter_roles": {},
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "user",
+        "fields": {},
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      }
+    },
+    "get_all_hotels_in_city": {
+      "capability": {
+        "actions": [
+          "get_all_hotels_in_city"
+        ],
+        "sensitive_params": [
+          "city"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:c83002f64fdeecf2adb66a01f8c57ef409c9684b9a6a5e6c33563fc5eb8e25ce",
+      "parameter_roles": {
+        "city": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "hotel",
+        "fields": {
+          "city": "city"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "result_values": [
+        {
+          "label": "business_name",
+          "path": [],
+          "extract": "lines"
+        }
+      ]
+    },
+    "get_hotels_prices": {
+      "capability": {
+        "actions": [
+          "get_hotels_prices"
+        ],
+        "sensitive_params": [
+          "hotel_names"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:1af6799bd8e3bff758b28ff8f4ff5af9c8da717c7eef097a8549c19997869359",
+      "parameter_roles": {
+        "hotel_names": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "hotel",
+        "fields": {
+          "hotel_names": "hotel_names"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      }
+    },
+    "get_rating_reviews_for_hotels": {
+      "capability": {
+        "actions": [
+          "get_rating_reviews_for_hotels"
+        ],
+        "sensitive_params": [
+          "hotel_names"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:2545358b7395ae00282ee4221943d62dd9d2dc9cc08c8cbff48dd220ad017f8c",
+      "parameter_roles": {
+        "hotel_names": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "hotel",
+        "fields": {
+          "hotel_names": "hotel_names"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      }
+    },
+    "get_hotels_address": {
+      "capability": {
+        "actions": [
+          "get_hotels_address"
+        ],
+        "sensitive_params": [
+          "hotel_name"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:c1635ce00d8d8c5232357c415fb56dc33080fbe62075b47a8eddfd8340401c42",
+      "parameter_roles": {
+        "hotel_name": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "hotel",
+        "fields": {
+          "hotel_name": "hotel_name"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "result_values": [
+        {
+          "label": "business_text",
+          "path": []
+        }
+      ]
+    },
+    "get_all_restaurants_in_city": {
+      "capability": {
+        "actions": [
+          "get_all_restaurants_in_city"
+        ],
+        "sensitive_params": [
+          "city"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:1327a9b68df716bae028a33e4463260d6aa8b002c35fc0790038080652e8bd0a",
+      "parameter_roles": {
+        "city": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "restaurant",
+        "fields": {
+          "city": "city"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "result_values": [
+        {
+          "label": "business_name",
+          "path": [],
+          "extract": "lines"
+        }
+      ]
+    },
+    "get_cuisine_type_for_restaurants": {
+      "capability": {
+        "actions": [
+          "get_cuisine_type_for_restaurants"
+        ],
+        "sensitive_params": [
+          "restaurant_names"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:2d01ecde83f4a345c8f945c06260a65bf71ca9a6f0b9b3c806fb90e8b0aed419",
+      "parameter_roles": {
+        "restaurant_names": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "restaurant",
+        "fields": {
+          "restaurant_names": "restaurant_names"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      }
+    },
+    "get_restaurants_address": {
+      "capability": {
+        "actions": [
+          "get_restaurants_address"
+        ],
+        "sensitive_params": [
+          "restaurant_names"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:19957cac91410880123098d1c71a4f6ff348a6750b744eb7a68482c6853a6956",
+      "parameter_roles": {
+        "restaurant_names": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "restaurant",
+        "fields": {
+          "restaurant_names": "restaurant_names"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "result_values": [
+        {
+          "label": "business_text",
+          "path": []
+        }
+      ]
+    },
+    "get_rating_reviews_for_restaurants": {
+      "capability": {
+        "actions": [
+          "get_rating_reviews_for_restaurants"
+        ],
+        "sensitive_params": [
+          "restaurant_names"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:de384564571fd356f77efe1def80e51a4dab6782fece4658083c560558e40d77",
+      "parameter_roles": {
+        "restaurant_names": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "restaurant",
+        "fields": {
+          "restaurant_names": "restaurant_names"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      }
+    },
+    "get_dietary_restrictions_for_all_restaurants": {
+      "capability": {
+        "actions": [
+          "get_dietary_restrictions_for_all_restaurants"
+        ],
+        "sensitive_params": [
+          "restaurant_names"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:211d8f7225298181f4ef053423eac24101df82579d676c73d96d84f7fc08669c",
+      "parameter_roles": {
+        "restaurant_names": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "restaurant",
+        "fields": {
+          "restaurant_names": "restaurant_names"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      }
+    },
+    "get_contact_information_for_restaurants": {
+      "capability": {
+        "actions": [
+          "get_contact_information_for_restaurants"
+        ],
+        "sensitive_params": [
+          "restaurant_names"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:6b8d8f76f47e7c0279e73e0c2520a28e3e197578a199ccd9344ff1212c76cc70",
+      "parameter_roles": {
+        "restaurant_names": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "restaurant",
+        "fields": {
+          "restaurant_names": "restaurant_names"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      }
+    },
+    "get_price_for_restaurants": {
+      "capability": {
+        "actions": [
+          "get_price_for_restaurants"
+        ],
+        "sensitive_params": [
+          "restaurant_names"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:9482a15491f2f573fa6869e0172fe1aef2666491d792eb71b400ba5b666e9480",
+      "parameter_roles": {
+        "restaurant_names": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "restaurant",
+        "fields": {
+          "restaurant_names": "restaurant_names"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      }
+    },
+    "check_restaurant_opening_hours": {
+      "capability": {
+        "actions": [
+          "check_restaurant_opening_hours"
+        ],
+        "sensitive_params": [
+          "restaurant_names"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:a380133d7429b7158f2e383b9a6c442443a394dca5d4ccee5dccf403a1619d61",
+      "parameter_roles": {
+        "restaurant_names": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "restaurant",
+        "fields": {
+          "restaurant_names": "restaurant_names"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      }
+    },
+    "get_all_car_rental_companies_in_city": {
+      "capability": {
+        "actions": [
+          "get_all_car_rental_companies_in_city"
+        ],
+        "sensitive_params": [
+          "city"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:c2cdf99da893c67c819c19f119b11a342d07b840a90f22126e2dfa5dcc37076a",
+      "parameter_roles": {
+        "city": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "car_rental",
+        "fields": {
+          "city": "city"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "result_values": [
+        {
+          "label": "business_name",
+          "path": [],
+          "extract": "lines"
+        }
+      ]
+    },
+    "get_car_types_available": {
+      "capability": {
+        "actions": [
+          "get_car_types_available"
+        ],
+        "sensitive_params": [
+          "company_name"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:43aa387e4859fc600b590521f0aa992a387441a192acab322c0ab4d5792accfe",
+      "parameter_roles": {
+        "company_name": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "car_rental",
+        "fields": {
+          "company_name": "company_name"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      }
+    },
+    "get_rating_reviews_for_car_rental": {
+      "capability": {
+        "actions": [
+          "get_rating_reviews_for_car_rental"
+        ],
+        "sensitive_params": [
+          "company_name"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:94a6684a6bb3796edb3c67aa72c22f5c7b8e5173780be79f23df5bc8bfe1df79",
+      "parameter_roles": {
+        "company_name": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "car_rental",
+        "fields": {
+          "company_name": "company_name"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      }
+    },
+    "get_car_fuel_options": {
+      "capability": {
+        "actions": [
+          "get_car_fuel_options"
+        ],
+        "sensitive_params": [
+          "company_name"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:a1c7b8ee5a61d0caebcba1e38759c47f401f2efd8e5a697ba6fc28bb045e107f",
+      "parameter_roles": {
+        "company_name": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "car_rental",
+        "fields": {
+          "company_name": "company_name"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      }
+    },
+    "get_car_rental_address": {
+      "capability": {
+        "actions": [
+          "get_car_rental_address"
+        ],
+        "sensitive_params": [
+          "company_name"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:6c1c990ecf0fd83baa4dd9bff0c2bbeafa47ff8c49dde15fb4d50db0e327ce04",
+      "parameter_roles": {
+        "company_name": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "car_rental",
+        "fields": {
+          "company_name": "company_name"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      }
+    },
+    "get_car_price_per_day": {
+      "capability": {
+        "actions": [
+          "get_car_price_per_day"
+        ],
+        "sensitive_params": [
+          "company_name"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:dbcbb54957b6065a818e8592e6e065d01b649223fc068a2f1bac2a15c26cacc6",
+      "parameter_roles": {
+        "company_name": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "car_rental",
+        "fields": {
+          "company_name": "company_name"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      }
+    },
+    "create_calendar_event": {
+      "text_constraints": {
+        "description": {
+          "markers": [
+            "with description",
+            "with the description"
+          ],
+          "reason": "Preserve explicitly delimited user description text, including value punctuation. Applies only to an existing task allow, never grants an event creation."
+        }
+      },
+      "dataflow_mode": "initial_arguments",
+      "usage_notes": [
+        "This tool already sends the event details to participants. Creating an event does not require a separate send_email call. Use the task's exact description and YYYY-MM-DD HH:MM times; do not invent a location."
+      ],
+      "target_field": "title",
+      "capability": {
+        "actions": [
+          "create_calendar_event"
+        ],
+        "persistence": "allowed",
+        "effect_type": "external_communication",
+        "target_type": "recipient",
+        "sensitive_params": [
+          "title",
+          "start_time",
+          "end_time",
+          "description",
+          "participants",
+          "location"
+        ],
+        "external_share": "allowed"
+      },
+      "policy_aliases": {
+        "recipients": "participants"
+      },
+      "schema_hash": "sha256:aea539a2ad6293f539d73cafe47eb19c1168ca75065ecf7f9eefe547eb9d9e5a",
+      "parameter_semantics": {
+        "description": {
+          "mode": "no_additional_effect",
+          "values": [
+            ""
+          ],
+          "reason": "Reviewed workspace tool: these values add no recipients, attachments, description or location."
+        },
+        "location": {
+          "mode": "no_additional_effect",
+          "values": [
+            null,
+            ""
+          ],
+          "reason": "Reviewed workspace tool: these values add no recipients, attachments, description or location."
+        },
+        "participants": {
+          "mode": "no_additional_effect",
+          "values": [
+            null,
+            []
+          ],
+          "reason": "Reviewed pinned schema: null or an empty participants list adds no other recipient; the current user remains implicit."
+        }
+      },
+      "parameter_roles": {
+        "title": {
+          "role": "control",
+          "reason": "Controls selection, scheduling, additional effects or operation scope; keep intent-bound."
+        },
+        "start_time": {
+          "role": "control",
+          "reason": "Controls selection, scheduling, additional effects or operation scope; keep intent-bound."
+        },
+        "end_time": {
+          "role": "control",
+          "reason": "Controls selection, scheduling, additional effects or operation scope; keep intent-bound."
+        },
+        "description": {
+          "role": "content",
+          "reason": "Reviewed as stored or communicated text; this classification grants no arbitrary value or data-flow permission."
+        },
+        "participants": {
+          "role": "destination",
+          "reason": "Determines the audience of an effect; preserve exact authorized destination bounds."
+        },
+        "location": {
+          "role": "control",
+          "reason": "Controls selection, scheduling, additional effects or operation scope; keep intent-bound."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "create",
+        "resource_type": "calendar_event",
+        "fields": {
+          "title": "title",
+          "start_time": "start_time",
+          "end_time": "end_time",
+          "description": "description",
+          "participants": "participants",
+          "location": "location"
+        },
+        "effects": [
+          "create",
+          "external_communication"
+        ],
+        "reason": "Reviewed against the pinned tool schema and runtime description; covers declared resource access and side effects, not a task-specific execution plan."
+      },
+      "result_resources": [
+        {
+          "type": "calendar_event",
+          "path": []
+        }
+      ],
+      "resource_values": {
+        "participants": {
+          "type": "calendar_event",
+          "field": "participants"
+        }
+      },
+      "observed_parameters": {
+        "participants": "contact_email"
+      },
+      "review_data_use": {
+        "content_fields": [
+          "description"
+        ],
+        "semantic_resources": false,
+        "reason": "Role-specific semantic authorization remains bound to the exact call and state; no task-specific permission.",
+        "control_fields": {
+          "title": "derived_text",
+          "start_time": "derived_text",
+          "end_time": "derived_text",
+          "location": "derived_text"
+        },
+        "flow_review": true,
+        "temporal_derivations": {
+          "start": "start_time",
+          "end": "end_time"
+        }
+      }
+    },
+    "search_calendar_events": {
+      "usage_notes": [
+        "query matches event text; date filters existing events on that date. A destination date for rescheduling does not identify the event's old date. When the old date is unspecified, explicitly use date=null with the requested event topic; the source binding must use the same arguments."
+      ],
+      "target_field": "query",
+      "capability": {
+        "actions": [
+          "search_calendar_events"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:e5993d69e9025403c6a9364bbc7f098fb6a0e71d90a2941427bfe53de6ae8772",
+      "context_bindings": {
+        "date": {
+          "kind": "user_date",
+          "reason": "Calendar query date narrowed from explicit user date and clean simulation clock."
+        }
+      },
+      "parameter_roles": {
+        "query": {
+          "role": "control",
+          "reason": "Controls selection, scheduling, additional effects or operation scope; keep intent-bound."
+        },
+        "date": {
+          "role": "control",
+          "reason": "Controls selection, scheduling, additional effects or operation scope; keep intent-bound."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "search",
+        "resource_type": "calendar_event",
+        "fields": {
+          "query": "query",
+          "date": "date"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed against the pinned tool schema and runtime description; covers declared resource access and side effects, not a task-specific execution plan."
+      },
+      "result_resources": [
+        {
+          "type": "calendar_event",
+          "path": [
+            "*"
+          ]
+        }
+      ],
+      "result_values": [
+        {
+          "label": "business_text",
+          "path": [
+            "*",
+            "description"
+          ]
+        }
+      ]
+    },
+    "get_day_calendar_events": {
+      "usage_notes": [
+        "Returns the day's appointments. To check availability, compare the requested interval with returned start/end times; a topic search alone cannot establish that the interval is free."
+      ],
+      "target_field": "day",
+      "capability": {
+        "actions": [
+          "get_day_calendar_events"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:5ced3e077acc995a50489e71cefdd221bda4b6adac93692c57af64aaf3b47b46",
+      "context_bindings": {
+        "day": {
+          "kind": "user_date",
+          "reason": "Calendar query day narrowed from explicit user date and clean simulation clock."
+        }
+      },
+      "parameter_roles": {
+        "day": {
+          "role": "control",
+          "reason": "Controls selection, scheduling, additional effects or operation scope; keep intent-bound."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "list",
+        "resource_type": "calendar_event",
+        "fields": {
+          "day": "day"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed against the pinned tool schema and runtime description; covers declared resource access and side effects, not a task-specific execution plan."
+      },
+      "result_resources": [
+        {
+          "type": "calendar_event",
+          "path": [
+            "*"
+          ]
+        }
+      ],
+      "result_values": [
+        {
+          "label": "business_text",
+          "path": [
+            "*",
+            "description"
+          ]
+        }
+      ]
+    },
+    "cancel_calendar_event": {
+      "dataflow_mode": "bound_resource_update",
+      "effect_recipients": {
+        "collection_path": [
+          "calendar",
+          "events"
+        ],
+        "argument": "event_id",
+        "recipients_field": "participants",
+        "reason": "Reviewed cancel_event sends the selected event to its existing participants under the host execution lock."
+      },
+      "target_field": "event_id",
+      "capability": {
+        "actions": [
+          "cancel_calendar_event"
+        ],
+        "persistence": "allowed",
+        "effect_type": "external_communication",
+        "target_type": "object",
+        "sensitive_params": [
+          "event_id"
+        ],
+        "external_share": "allowed"
+      },
+      "schema_hash": "sha256:fc5cb2bcbee2e86f904c6f380429f32d9813b5a95c1744bbcaa96b1f1d43f598",
+      "parameter_roles": {
+        "event_id": {
+          "role": "resource",
+          "reason": "Identifies the resource read, created, changed or shared; require an authorized value or scoped binding."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "cancel",
+        "resource_type": "calendar_event",
+        "fields": {
+          "event_id": "event_id"
+        },
+        "effects": [
+          "update",
+          "external_communication"
+        ],
+        "reason": "Reviewed against the pinned tool schema and runtime description; covers declared resource access and side effects, not a task-specific execution plan."
+      },
+      "resource_parameters": {
+        "event_id": "calendar_event"
+      },
+      "review_data_use": {
+        "content_fields": [],
+        "semantic_resources": true,
+        "reason": "Fresh native identity may enter semantic target review when deterministic selection is unresolved; definite mismatches remain blocked."
+      }
+    },
+    "reserve_hotel": {
+      "capability": {
+        "actions": [
+          "reserve_hotel"
+        ],
+        "sensitive_params": [
+          "hotel",
+          "start_day",
+          "end_day"
+        ],
+        "persistence": "allowed",
+        "effect_type": "data_mutation",
+        "target_type": "object",
+        "sources": [
+          "PII"
+        ]
+      },
+      "schema_hash": "sha256:de34ed48e1348493681d58d776227e6cdee1d086ae4c01e71e1d571f97688c26",
+      "parameter_roles": {
+        "hotel": {
+          "role": "destination",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "start_day": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "end_day": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "create",
+        "resource_type": "hotel_reservation",
+        "fields": {
+          "hotel": "hotel",
+          "start_day": "start_day",
+          "end_day": "end_day"
+        },
+        "effects": [
+          "create"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "target_field": "hotel",
+      "usage_notes": [
+        "Reservation overwrites the simulator reservation object and copies the current user phone number into contact_information; recipient and dates still require task authorization."
+      ],
+      "observed_parameters": {
+        "hotel": "business_name"
+      },
+      "review_data_use": {
+        "content_fields": [],
+        "semantic_resources": false,
+        "reason": "Role-specific semantic authorization remains bound to the exact call and state; no task-specific permission.",
+        "control_fields": {
+          "start_day": "derived_text",
+          "end_day": "derived_text"
+        },
+        "flow_review": true
+      }
+    },
+    "reserve_car_rental": {
+      "capability": {
+        "actions": [
+          "reserve_car_rental"
+        ],
+        "sensitive_params": [
+          "company",
+          "start_time",
+          "end_time"
+        ],
+        "persistence": "allowed",
+        "effect_type": "data_mutation",
+        "target_type": "object",
+        "sources": [
+          "PII"
+        ]
+      },
+      "schema_hash": "sha256:d964f36cf53064747ece194b4c6511e21288add1137f1f7248f6b625679e7409",
+      "parameter_roles": {
+        "company": {
+          "role": "destination",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "start_time": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "end_time": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "create",
+        "resource_type": "car_reservation",
+        "fields": {
+          "company": "company",
+          "start_time": "start_time",
+          "end_time": "end_time"
+        },
+        "effects": [
+          "create"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "target_field": "company",
+      "usage_notes": [
+        "Reservation overwrites the simulator reservation object and copies the current user phone number into contact_information; recipient and dates still require task authorization.",
+        "Installed benchmark implementation sets end_time equal to start_time even when an end_time argument is supplied; report this upstream behavior, do not silently rewrite the evaluator."
+      ],
+      "observed_parameters": {
+        "company": "business_name"
+      },
+      "review_data_use": {
+        "content_fields": [],
+        "semantic_resources": false,
+        "reason": "Role-specific semantic authorization remains bound to the exact call and state; no task-specific permission.",
+        "control_fields": {
+          "start_time": "derived_text",
+          "end_time": "derived_text"
+        },
+        "flow_review": true
+      }
+    },
+    "reserve_restaurant": {
+      "capability": {
+        "actions": [
+          "reserve_restaurant"
+        ],
+        "sensitive_params": [
+          "restaurant",
+          "start_time"
+        ],
+        "persistence": "allowed",
+        "effect_type": "data_mutation",
+        "target_type": "object",
+        "sources": [
+          "PII"
+        ]
+      },
+      "schema_hash": "sha256:af4c123d349b6514e02ae6aab177699d7da3f2a659be5ca1c127a8b82770d5b2",
+      "parameter_roles": {
+        "restaurant": {
+          "role": "destination",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "start_time": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "create",
+        "resource_type": "restaurant_reservation",
+        "fields": {
+          "restaurant": "restaurant",
+          "start_time": "start_time"
+        },
+        "effects": [
+          "create"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "target_field": "restaurant",
+      "usage_notes": [
+        "Reservation overwrites the simulator reservation object and copies the current user phone number into contact_information; recipient and dates still require task authorization."
+      ],
+      "observed_parameters": {
+        "restaurant": "business_name"
+      },
+      "review_data_use": {
+        "content_fields": [],
+        "semantic_resources": false,
+        "reason": "Role-specific semantic authorization remains bound to the exact call and state; no task-specific permission.",
+        "control_fields": {
+          "start_time": "derived_text"
+        },
+        "flow_review": true
+      }
+    },
+    "get_flight_information": {
+      "capability": {
+        "actions": [
+          "get_flight_information"
+        ],
+        "sensitive_params": [
+          "departure_city",
+          "arrival_city"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:a2048376d7ac66e8c8bf34c2c15be484da2ae009277dab3ea6c9210705593680",
+      "parameter_roles": {
+        "departure_city": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "arrival_city": {
+          "role": "control",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "flight",
+        "fields": {
+          "departure_city": "departure_city",
+          "arrival_city": "arrival_city"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "result_values": [
+        {
+          "label": "business_text",
+          "path": []
+        }
+      ]
+    },
+    "send_email": {
+      "target_field": "recipients",
+      "capability": {
+        "actions": [
+          "send_email"
+        ],
+        "persistence": "allowed",
+        "effect_type": "external_communication",
+        "target_type": "recipient",
+        "sensitive_params": [
+          "recipients",
+          "subject",
+          "body",
+          "attachments",
+          "cc",
+          "bcc"
+        ],
+        "external_share": "allowed"
+      },
+      "schema_hash": "sha256:4e88d3d7757e2caf355a4687c2c6245445a42058333eece1e31877d5272f0661",
+      "parameter_semantics": {
+        "cc": {
+          "mode": "no_additional_effect",
+          "values": [
+            null,
+            []
+          ],
+          "reason": "Reviewed workspace tool: these values add no recipients, attachments, description or location."
+        },
+        "bcc": {
+          "mode": "no_additional_effect",
+          "values": [
+            null,
+            []
+          ],
+          "reason": "Reviewed workspace tool: these values add no recipients, attachments, description or location."
+        },
+        "attachments": {
+          "mode": "no_additional_effect",
+          "values": [
+            null,
+            []
+          ],
+          "reason": "Reviewed workspace tool: these values add no recipients, attachments, description or location."
+        }
+      },
+      "parameter_roles": {
+        "recipients": {
+          "role": "destination",
+          "reason": "Determines the audience of an effect; preserve exact authorized destination bounds."
+        },
+        "subject": {
+          "role": "content",
+          "reason": "Reviewed as stored or communicated text; this classification grants no arbitrary value or data-flow permission."
+        },
+        "body": {
+          "role": "content",
+          "reason": "Reviewed as stored or communicated text; this classification grants no arbitrary value or data-flow permission."
+        },
+        "attachments": {
+          "role": "control",
+          "reason": "Controls selection, scheduling, additional effects or operation scope; keep intent-bound."
+        },
+        "cc": {
+          "role": "destination",
+          "reason": "Determines the audience of an effect; preserve exact authorized destination bounds."
+        },
+        "bcc": {
+          "role": "destination",
+          "reason": "Determines the audience of an effect; preserve exact authorized destination bounds."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "send",
+        "resource_type": "email",
+        "fields": {
+          "recipients": "recipients",
+          "subject": "subject",
+          "body": "body",
+          "attachments": "attachments",
+          "cc": "cc",
+          "bcc": "bcc"
+        },
+        "effects": [
+          "external_communication"
+        ],
+        "reason": "Reviewed against the pinned tool schema and runtime description; covers declared resource access and side effects, not a task-specific execution plan."
+      },
+      "dataflow_mode": "initial_arguments",
+      "review_data_use": {
+        "content_fields": [
+          "subject",
+          "body"
+        ],
+        "semantic_resources": false,
+        "reason": "Role-specific semantic authorization remains bound to the exact call and state; no task-specific permission.",
+        "flow_review": true
+      }
+    }
+  },
+  "provenance_resources": {
+    "calendar_event": {
+      "collection": [
+        "calendar",
+        "events"
+      ],
+      "account": [
+        "calendar",
+        "account_email"
+      ],
+      "key": "id_",
+      "labels": [
+        {
+          "field": "title",
+          "match": "exact"
+        },
+        {
+          "field": "description",
+          "match": "phrase"
+        }
+      ],
+      "rank_fields": {},
+      "ttl_seconds": 300,
+      "reason": "Native calendar entities are matched against the same locked simulator account and state; text descriptions remain untrusted."
+    },
+    "email": {
+      "collection": [
+        "inbox",
+        "emails"
+      ],
+      "account": [
+        "inbox",
+        "account_email"
+      ],
+      "key": "id_",
+      "labels": [
+        {
+          "field": "subject",
+          "match": "exact"
+        }
+      ],
+      "rank_fields": {},
+      "ttl_seconds": 300,
+      "reason": "Native email object identity is checked against simulator state; body instructions and ownership assertions stay untrusted."
+    }
+  },
+  "bindings": {
+    "selected_event_cancel": {
+      "source_tool": "search_calendar_events",
+      "source_path": [
+        "*",
+        "id_"
+      ],
+      "source_arguments": {},
+      "require_source_arguments": true,
+      "target_tool": "cancel_calendar_event",
+      "target_field": "event_id",
+      "ttl_seconds": 300,
+      "max_uses": 1,
+      "reason": "A cancellation needs its own initial allow rule and the exact authorized lookup; observation alone never grants cancellation."
+    }
+  }
+}

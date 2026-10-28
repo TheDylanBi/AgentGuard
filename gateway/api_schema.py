@@ -149,6 +149,7 @@ class CapabilityDeclaration(StrictModel):
     # share, or persistence. Credential access is a high-risk SOURCE, NOT a sink.
     network_egress: str = "denied"    # denied | allowed -> data leaves via network
     external_share: str = "denied"    # denied | allowed -> send/post/upload/forward
+    financial_transfer: str = "denied"  # Explicit monetary effect; sharing never implies payment authority.
     credential_access: str = "denied"  # denied | allowed -> reads credentials (source)
     sources: List[str] = Field(default_factory=list)  # credential | private_file | PII | financial
     effect_type: Optional[str] = None
@@ -168,7 +169,7 @@ class CapabilityDeclaration(StrictModel):
             data["network_egress"] = data.get("network", "denied")
         if "credential_access" not in data:
             data["credential_access"] = data.get("credential", "denied")
-        for name in ("network", "credential", "process", "persistence", "network_egress", "external_share", "credential_access"):
+        for name in ("network", "credential", "process", "persistence", "network_egress", "external_share", "financial_transfer", "credential_access"):
             if data.get(name, "denied") not in ("allowed", "denied"):
                 raise ValueError(f"Invalid capability flag: {name}")
         return data

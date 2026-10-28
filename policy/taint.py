@@ -86,6 +86,8 @@ def is_sink(capability: Optional[Dict]) -> bool:
     caps = capability or {}
     if caps.get("network_egress") == "allowed" or caps.get("external_share") == "allowed":
         return True
+    if caps.get('financial_transfer')=='allowed':
+        return True
     return caps.get("network") == "allowed" or caps.get("persistence") == "allowed"
 
 
@@ -111,7 +113,7 @@ def _object_matches(field_value: str, object_id: str) -> bool:
     return False
 
 
-def references_tainted_field_level(action, tainted_objects) -> List:
+def references_tainted_field_level(action, tainted_objects, *, reference_fields=()) -> List:
     """Return ``[(field, object_id)]`` hits — field-level, object-ID based."""
     hits: List = []
     candidates = list(_string_fields(action))
@@ -120,19 +122,21 @@ def references_tainted_field_level(action, tainted_objects) -> List:
         if not oid:
             continue
         for field, value in candidates:
+            if field in reference_fields:
+                continue  # Trusted host verified an identity reference, not content disclosure.
             if isinstance(value, str) and value and _object_matches(value, oid):
                 hits.append((field, obj.get("object_id") if isinstance(obj, dict) else obj))
                 break
     return hits
 
 
-def references_tainted(action, tainted_objects) -> str:
+def references_tainted(action, tainted_objects, *, reference_fields=()) -> str:
     """Return the first matching tainted object id, or ''."""
-    hits = references_tainted_field_level(action, tainted_objects)
+    hits = references_tainted_field_level(action, tainted_objects, reference_fields=reference_fields)
     return hits[0][1] if hits else ""
 
 
-def classify(action, capability, taint_state) -> Optional[tuple]:
+def classify(action, capability, taint_state, *, reference_fields=(), flow_fields=()) -> Optional[tuple]:
     """For a SINK action, return (verdict, reason); None if not a sink/clean."""
     if not is_sink(capability):
         return None
@@ -140,7 +144,10 @@ def classify(action, capability, taint_state) -> Optional[tuple]:
     if not st.get("dirty") and not st.get("tainted_objects"):
         return None
     try:
-        hit = references_tainted(action, st.get("tainted_objects", []))
+        # flow_fields are host-verified resource positions admitted to a separate
+        # per-call disclosure review. They are not mere identity references.
+        hit = references_tainted(action, st.get("tainted_objects", []),
+                                 reference_fields=set(reference_fields)|set(flow_fields))
     except TaintScanError:
         return ("BLOCK", "Taint payload could not be fully inspected within supported JSON limits")
     if hit:

@@ -22,7 +22,9 @@ class CertificateLog:
         if not self.path.exists():
             return []
         entries = []
-        for line in self.path.read_text(encoding="utf-8").splitlines():
+        # JSON Lines uses LF, not Unicode paragraph/line separators that may
+        # legitimately occur inside an unescaped JSON string.
+        for line in self.path.read_text(encoding="utf-8").split('\n'):
             line = line.strip()
             if line:
                 entries.append(json.loads(line))

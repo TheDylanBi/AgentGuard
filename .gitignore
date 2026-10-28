@@ -14,4 +14,6 @@ __pycache__/
 /results/*.json
 /results/*.jsonl
 /results/agentdojo_pi_*/
+/results/asb_*/
+/tmp/asb-venv/
 /match.json

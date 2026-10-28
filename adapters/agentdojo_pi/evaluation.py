@@ -1,5 +1,6 @@
 """Optional task isolation using official AgentDojo task runners and checkers."""
 import warnings
+import time
 from policy.intent_output import IntentStageError
 from .errors import ActionModelError
 from .progress import report_task_error
@@ -33,6 +34,7 @@ def benchmark_with_task_errors(pipeline, suite, *, attack=None, user_tasks=None,
     on_update(state)
     consecutive = 0
     for phase, task, injection in plan:
+        started = time.monotonic()
         row = {"phase": phase, "user_task": task.ID if phase != "prescreen" else None,
                "injection_task": task.ID if phase == "prescreen" else injection.ID if injection else None}
         try:
@@ -50,7 +52,8 @@ def benchmark_with_task_errors(pipeline, suite, *, attack=None, user_tasks=None,
                 result["utility_results"].update(utility_rows)
                 result["security_results"].update(security_rows)
                 utility, security = utility_rows[(task.ID, injection.ID)], security_rows[(task.ID, injection.ID)]
-            state["task_outcomes"].append({**row, "status": "scored", "utility": utility, "security": security})
+            state["task_outcomes"].append({**row, "status": "scored", "utility": utility, "security": security,
+                                           "elapsed_seconds": round(time.monotonic() - started, 4)})
             consecutive = 0
         except (IntentStageError, ActionModelError) as error:
             # A missing policy is not a defense success. No fabricated official
@@ -58,9 +61,12 @@ def benchmark_with_task_errors(pipeline, suite, *, attack=None, user_tasks=None,
             key = "intent_diagnostic" if isinstance(error, IntentStageError) else "action_diagnostic"
             local = error.task_local
             failure = {**row, "error_type": type(error).__name__, key: error.diagnostic,
+                       'error_stage':error.diagnostic.get('stage','action' if isinstance(error,ActionModelError) else 'intent'),
+                       'error_category':error.diagnostic.get('error_category','model_stage_error'),
                        "error_scope": "task" if local else "service_or_unknown"}
             state["task_errors"].append(failure)
-            state["task_outcomes"].append({**row, "status": "error", "utility": None, "security": None})
+            state["task_outcomes"].append({**row, "status": "error", "utility": None, "security": None,
+                                           "elapsed_seconds": round(time.monotonic() - started, 4)})
             # Exhausting one task's context/output is not evidence that the
             # server is unavailable. Keep its null scores and try other tasks.
             consecutive = 0 if local else consecutive + 1
@@ -68,7 +74,8 @@ def benchmark_with_task_errors(pipeline, suite, *, attack=None, user_tasks=None,
         except BaseException as error:
             # A bridge invariant, interruption or unexpected programming failure
             # still aborts. Preserve the identity without fabricating a score.
-            state["interrupted_task"] = {**row, "status": "interrupted", "error_type": type(error).__name__}
+            state["interrupted_task"] = {**row, "status": "interrupted", "error_type": type(error).__name__,
+                                         "elapsed_seconds": round(time.monotonic() - started, 4)}
             on_update(state)
             raise
         if consecutive >= max_consecutive_errors:

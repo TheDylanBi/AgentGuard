@@ -97,6 +97,10 @@ pi 需要 `ICB_CAPABILITY_CERT_ID`（管理员以 `tool_id=pi_agent` 注册）�
 
 ## 验证
 
+ASB 已提供原生 Agent/模拟工具/官方评分接入，支持 baseline 与 ICB-Guard 对照。
+默认读取 `F:/Datasets/ASB`，不改动原始 ASB 目录；配置、运行命令与评测范围见
+[ASB 使用说明](docs/asb.md)。
+
 新回归使用临时密钥、日志和模拟模型/浏览器，不接触实际敏感数据或在线模型：
 
 ```powershell

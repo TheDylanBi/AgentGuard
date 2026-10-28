@@ -83,7 +83,7 @@ class OptionalConstraintsTests(FixtureMixin, unittest.TestCase):
             self.assertIsNotNone(host.call(str(i), "send_email", self.email)[1])
             self.assertEqual(host.counts["executed"], 0)
 
-    def test_existing_deny_business_and_taint_checks_still_win(self):
+    def test_existing_deny_business_and_direct_taint_checks_still_win(self):
         rule = self.rule("send_email", self.email)
         deny = {"tool": "send_email", "decision": "deny", "predicate": {"op": "true"}}
         host = self.host(rules=[rule, deny], effect_profile={})
@@ -94,8 +94,11 @@ class OptionalConstraintsTests(FixtureMixin, unittest.TestCase):
         host = self.guarded("send_email", self.email, business_policy=path)
         self.assertIn("ICB-BLOCK", host.call("business", "send_email", self.email)[1])
         host = self.guarded("send_email", self.email)
-        host.taint = {"dirty": True, "tainted_objects": []}
-        self.assertIn("ICB-CONFIRM", host.call("taint", "send_email", self.email)[1])
+        # Dirty alone permits the existing exact frozen-argument proof. A real
+        # tainted object copied into content must still fail that proof's recheck.
+        host.taint = {"dirty": True, "tainted_objects": [
+            {"object_id":"Hello","source":"external_untrusted"}]}
+        self.assertIn("ICB-BLOCK", host.call("taint", "send_email", self.email)[1])
         self.assertEqual(host.counts["executed"], 0)
 
     def test_completion_is_static_idempotent_and_does_not_change_denies(self):

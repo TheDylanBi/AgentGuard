@@ -150,18 +150,91 @@ class PolicyEngine:
             return False, None, "invalid certificate trust"
         return True, trust, "certificate verified"
 
+    def _operator_constraints(self, action, capability):
+        denial = self.business_policy.check(action)
+        if denial:
+            return denial
+        error = check_constraints(action, (capability or {}).get("parameter_constraints", {}))
+        if error:
+            return {"verdict": "BLOCK", "reason": error, "rule": "capability.parameters"}
+
+    def _boundary_context(self, action, capability, policy, effective, *, require_capability,
+                          certificate, certificate_verifier, taint_state, taint_reference_fields=(), taint_flow_fields=()):
+        """Shared mandatory checks. A context is not permission to execute."""
+        def deny(reason, rule=None, verdict="BLOCK"):
+            return {"verdict": verdict, "reason": reason, "rule": rule or policy.get("name")}, None
+        ok, why = self._check_capability(policy, capability, action, require_capability)
+        if not ok:
+            return deny(why, "capability.declaration")
+        inside, _, allowed = self._path_in_envelope(policy, capability or {}, action)
+        if not inside:
+            return deny(f"Path outside capability envelope: {allowed}", "capability.path")
+        payload = getattr(action, "payload", None) or {}
+        alias = {"read_file": "path", "write_file": "path", "shell": "command"}.get(action.type)
+        if alias in payload and payload[alias] != action.target:
+            return deny("Conflicting target and execution argument", "action.binding")
+        fields = symbolic.action_fields(action.type, action.target, payload)
+        rv, matched = symbolic.check_rules(action.type, fields, effective)
+        if rv == "deny":
+            return deny("Explicit deny rule matched", "symbolic.deny")
+        tr = taint.classify(action, capability, taint_state,
+                           reference_fields=taint_reference_fields, flow_fields=taint_flow_fields) if taint_state is not None else None
+        if tr and tr[0] == "BLOCK":
+            return deny(tr[1], "p5.taint")
+        requires, verified = policy.get("requires", []), "unknown"
+        if certificate is not None or requires:
+            ok, verified, why = self._verify_certificate(certificate, action, certificate_verifier)
+            if not ok:
+                return deny(why, "p4.certificate")
+        if requires and verified in ("unknown", "conflict"):
+            return deny("Missing or conflicting visual evidence", "evidence.invalid")
+        return None, {"fields": fields, "rv": rv, "matched": matched, "taint": tr,
+                      "requires": requires, "verified_trust": verified}
+
+    def check_hard(self, action, *, capability, taint_state=None, denies=None,
+                   certificate=None, certificate_verifier=None, require_capability=True,
+                   taint_reference_fields=(), taint_flow_fields=()):
+        """PASS means eligible for a task-authority decision, never ALLOW.
+
+        Accepts deny-only policies: no synthetic/task allow is needed or used.
+        Schema normalization and capability-certificate verification remain the
+        trusted caller's responsibility, as for evaluate().
+        taint_reference_fields is trusted-host input only, after independent
+        receipt/binding validation; never populate it from proposed arguments.
+        taint_flow_fields requires verified resource receipts and a separate
+        exact-call data-use authorization. PASS still never means execution.
+        """
+        denial = self._operator_constraints(action, capability)
+        if denial:
+            return denial
+        if any(rule.get("decision") != "deny" for rule in (denies or [])):
+            raise ValueError("Hard checks accept deny-only rules")
+        effective = symbolic.validate_rules(denies or [], capability)
+        policy = self._load(action.type) or {"name": "hard.default", "requires": []}
+        decision, context = self._boundary_context(action, capability, policy, effective,
+            require_capability=require_capability, certificate=certificate,
+            certificate_verifier=certificate_verifier, taint_state=taint_state,
+            taint_reference_fields=taint_reference_fields, taint_flow_fields=taint_flow_fields)
+        if decision:
+            return decision
+        if context["taint"]:
+            return {"verdict": context["taint"][0], "reason": context["taint"][1], "rule": "p5.taint"}
+        if context["requires"] and context["verified_trust"] != "trusted":
+            return {"verdict": "CONFIRM", "reason": "Trusted evidence required", "rule": "evidence.review"}
+        if action.type == "shell" or (capability or {}).get("process") == "allowed":
+            return {"verdict": "CONFIRM", "reason": "Executable effects need independently enforced bounds",
+                    "rule": "execution.review"}
+        return {"verdict": "PASS", "reason": "Mandatory boundaries passed; task authorization pending",
+                "rule": "hard.pending_authorization"}
+
     def evaluate(self, action, trust: str, evidence_count: int, intent_text: str = "",
                  capability=None, require_capability=True, intent_profile=None,
                  llm_danger=None, llm_reason=None, rules=None, enable_rules=True,
-                 certificate=None, certificate_verifier=None, taint_state=None):
+                 certificate=None, certificate_verifier=None, taint_state=None, taint_reference_fields=()):
         """Evaluate every hard boundary before returning a soft approval request."""
-        business_denial = self.business_policy.check(action)
-        if business_denial:
-            return business_denial
-        constraint_error = check_constraints(action, (capability or {}).get("parameter_constraints", {}))
-        if constraint_error:
-            return {"verdict": "BLOCK", "reason": constraint_error,
-                    "rule": "capability.parameters"}
+        operator_denial = self._operator_constraints(action, capability)
+        if operator_denial:
+            return operator_denial
         effective = rules if rules is not None else (intent_profile or {}).get("rules", [])
         effective = symbolic.validate_rules(effective or [], capability) if enable_rules else []
         policy = self._load(action.type)
@@ -173,33 +246,17 @@ class PolicyEngine:
         def result(verdict, reason, rule=None):
             return {"verdict": verdict, "reason": reason, "rule": rule or name}
 
-        ok, why = self._check_capability(policy, capability, action, require_capability)
-        if not ok:
-            return result("BLOCK", why)
-        inside, _, allowed = self._path_in_envelope(policy, capability or {}, action)
-        if not inside:
-            return result("BLOCK", f"Path outside capability envelope: {allowed}", "capability.path")
-        # Caller-provided secondary aliases must not describe another resource.
-        payload = getattr(action, "payload", None) or {}
-        alias = {"read_file": "path", "write_file": "path", "shell": "command"}.get(action.type)
-        if alias in payload and payload[alias] != action.target:
-            return result("BLOCK", "Conflicting target and execution argument", "action.binding")
-        fields = symbolic.action_fields(action.type, action.target, payload)
-        rv, matched = symbolic.check_rules(action.type, fields, effective)
-        if rv == "deny":
-            return result("BLOCK", "Explicit deny rule matched", "symbolic.deny")
-        tr = taint.classify(action, capability, taint_state) if taint_state is not None else None
-        if tr and tr[0] == "BLOCK":
-            return result("BLOCK", tr[1], "p5.taint")
-
-        requires = policy.get("requires", [])
-        verified_trust = "unknown"
-        if certificate is not None or requires:
-            ok, verified_trust, why = self._verify_certificate(certificate, action, certificate_verifier)
-            if not ok:
-                return result("BLOCK", why, "p4.certificate")
-        if requires and verified_trust in ("unknown", "conflict"):
-            return result("BLOCK", "Missing or conflicting visual evidence", "evidence.invalid")
+        denial, context = self._boundary_context(action, capability, policy, effective,
+            require_capability=require_capability, certificate=certificate,
+            certificate_verifier=certificate_verifier, taint_state=taint_state,
+            taint_reference_fields=taint_reference_fields)
+        if denial:
+            # Preserve the legacy public rule identifier for capability failures.
+            if denial["rule"] == "capability.declaration":
+                denial["rule"] = name
+            return denial
+        fields, rv, matched = context["fields"], context["rv"], context["matched"]
+        tr, requires, verified_trust = context["taint"], context["requires"], context["verified_trust"]
         risk, sink = self._risk_tier(policy, capability, action), taint.is_sink(capability)
         if not effective:
             if sink or risk in ("high", "critical"):

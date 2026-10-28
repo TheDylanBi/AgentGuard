@@ -49,7 +49,7 @@ _EFFECT_CAP_FLAG = {
     "credential_access": "credential_access",
     "network_navigation": "network_egress",
     "external_communication": "external_share",
-    "financial_transfer": "external_share",
+    "financial_transfer": "financial_transfer",
     "share": "external_share",
     "physical_action": "external_share",
     "arbitrary_process_execution": "process",

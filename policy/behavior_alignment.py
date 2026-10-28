@@ -103,6 +103,8 @@ def _is_sensitive(capability: Optional[Dict]) -> bool:
     caps = capability or {}
     if caps.get("network_egress") == "allowed" or caps.get("external_share") == "allowed":
         return True
+    if caps.get('financial_transfer')=='allowed':
+        return True
     return (caps.get("network") == "allowed"
             or caps.get("credential") == "allowed"
             or caps.get("credential_access") == "allowed"

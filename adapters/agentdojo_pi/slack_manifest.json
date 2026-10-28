@@ -1,0 +1,651 @@
+{
+  "version": 1,
+  "suite": "slack",
+  "aggregate_evidence": [
+    {"label":"channel_message_counts","inventory_tool":"get_channels","source_tool":"read_channel_messages",
+     "source_parameter":"channel","group_field":"sender","scope_path":["slack","channels"],"records_path":["slack","channel_inbox"]}
+  ],
+  "tools": {
+    "get_channels": {
+      "capability": {
+        "actions": [
+          "get_channels"
+        ],
+        "sensitive_params": [],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:893adc96a87959ca259774f1751aa8c9d98aa22ee5780ddf5b27ac21efb4f4a6",
+      "parameter_roles": {},
+      "semantic_action": {
+        "version": 1,
+        "operation": "list",
+        "resource_type": "channel",
+        "fields": {},
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "result_values": [
+        {
+          "label": "channel_name",
+          "path": [
+            "*"
+          ]
+        }
+      ]
+    },
+    "add_user_to_channel": {
+      "capability": {
+        "actions": [
+          "add_user_to_channel"
+        ],
+        "sensitive_params": [
+          "user",
+          "channel"
+        ],
+        "persistence": "allowed",
+        "effect_type": "external_communication",
+        "target_type": "recipient",
+        "external_share": "allowed"
+      },
+      "schema_hash": "sha256:da7b18f3fd6e5328f7ee484cdba35d63199792b8b99b88755095935cf5479c94",
+      "parameter_roles": {
+        "user": {
+          "role": "destination",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "channel": {
+          "role": "resource",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "update",
+        "resource_type": "membership",
+        "fields": {
+          "user": "user",
+          "channel": "channel"
+        },
+        "effects": [
+          "update",
+          "external_communication"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "target_field": "channel",
+      "observed_parameters": {
+        "channel": "channel_name",
+        "user": "user_name"
+      },
+      "identity_scopes": {
+        "channel": [
+          "slack",
+          "channels"
+        ],
+        "user": [
+          "slack",
+          "users"
+        ]
+      },
+      "review_data_use": {
+        "content_fields": [],
+        "semantic_resources": false,
+        "reason": "Role-specific semantic authorization remains bound to the exact call and state; no task-specific permission.",
+        "flow_review": true
+      }
+    },
+    "read_channel_messages": {
+      "capability": {
+        "actions": [
+          "read_channel_messages"
+        ],
+        "sensitive_params": [
+          "channel"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:81729aff61e5518647590862b16e48eea7bb36a6699b91f7415e6f93049c63f2",
+      "parameter_roles": {
+        "channel": {
+          "role": "resource",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "channel",
+        "fields": {
+          "channel": "channel"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "target_field": "channel",
+      "result_values": [
+        {
+          "label": "business_text",
+          "path": [
+            "*",
+            "body"
+          ]
+        },
+        {
+          "label": "web_address",
+          "path": [
+            "*",
+            "body"
+          ],
+          "extract": "urls"
+        },
+        {
+          "label": "contact_email",
+          "path": [
+            "*",
+            "body"
+          ],
+          "extract": "emails"
+        },
+        {
+          "label": "user_name",
+          "path": [
+            "*",
+            "sender"
+          ]
+        }
+      ],
+      "observed_parameters": {
+        "channel": "channel_name"
+      },
+      "identity_scopes": {
+        "channel": [
+          "slack",
+          "channels"
+        ]
+      }
+    },
+    "read_inbox": {
+      "capability": {
+        "actions": [
+          "read_inbox"
+        ],
+        "sensitive_params": [
+          "user"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:fc33108a8de21e70c097b00bef20dbcc83e0952a64b0ab7fa03ec7d4c5c1fcae",
+      "parameter_roles": {
+        "user": {
+          "role": "resource",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "inbox",
+        "fields": {
+          "user": "user"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "target_field": "user",
+      "result_values": [
+        {
+          "label": "business_text",
+          "path": [
+            "*",
+            "body"
+          ]
+        },
+        {
+          "label": "web_address",
+          "path": [
+            "*",
+            "body"
+          ],
+          "extract": "urls"
+        },
+        {
+          "label": "contact_email",
+          "path": [
+            "*",
+            "body"
+          ],
+          "extract": "emails"
+        },
+        {
+          "label": "user_name",
+          "path": [
+            "*",
+            "sender"
+          ]
+        }
+      ],
+      "observed_parameters": {
+        "user": "user_name"
+      },
+      "identity_scopes": {
+        "user": [
+          "slack",
+          "users"
+        ]
+      }
+    },
+    "send_direct_message": {
+      "capability": {
+        "actions": [
+          "send_direct_message"
+        ],
+        "sensitive_params": [
+          "recipient",
+          "body"
+        ],
+        "persistence": "allowed",
+        "effect_type": "external_communication",
+        "target_type": "recipient",
+        "external_share": "allowed"
+      },
+      "schema_hash": "sha256:5cb35bc938813c738d2e053945b7773eacbd12deef8c3b071667d874b4799583",
+      "parameter_roles": {
+        "recipient": {
+          "role": "destination",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "body": {
+          "role": "content",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "send",
+        "resource_type": "message",
+        "fields": {
+          "recipient": "recipient",
+          "body": "body"
+        },
+        "effects": [
+          "update",
+          "external_communication"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "target_field": "recipient",
+      "review_data_use": {
+        "content_fields": [
+          "body"
+        ],
+        "semantic_resources": false,
+        "reason": "Role-specific semantic authorization remains bound to the exact call and state; no task-specific permission.",
+        "flow_review": true
+      },
+      "observed_parameters": {
+        "recipient": "user_name"
+      },
+      "identity_scopes": {
+        "recipient": [
+          "slack",
+          "users"
+        ]
+      }
+    },
+    "send_channel_message": {
+      "capability": {
+        "actions": [
+          "send_channel_message"
+        ],
+        "sensitive_params": [
+          "channel",
+          "body"
+        ],
+        "persistence": "allowed",
+        "effect_type": "external_communication",
+        "target_type": "recipient",
+        "external_share": "allowed"
+      },
+      "schema_hash": "sha256:d874b4179e74d25a98ca0388dcdac265e5358f661e5e27bb36088930ca02481a",
+      "parameter_roles": {
+        "channel": {
+          "role": "destination",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "body": {
+          "role": "content",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "send",
+        "resource_type": "message",
+        "fields": {
+          "channel": "channel",
+          "body": "body"
+        },
+        "effects": [
+          "update",
+          "external_communication"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "target_field": "channel",
+      "observed_parameters": {
+        "channel": "channel_name"
+      },
+      "identity_scopes": {
+        "channel": [
+          "slack",
+          "channels"
+        ]
+      },
+      "review_data_use": {
+        "content_fields": [
+          "body"
+        ],
+        "semantic_resources": false,
+        "reason": "Role-specific semantic authorization remains bound to the exact call and state; no task-specific permission.",
+        "flow_review": true
+      }
+    },
+    "get_users_in_channel": {
+      "capability": {
+        "actions": [
+          "get_users_in_channel"
+        ],
+        "sensitive_params": [
+          "channel"
+        ],
+        "sources": [
+          "external_untrusted"
+        ]
+      },
+      "schema_hash": "sha256:d0eafb2af21d094ae0960b61564f546b24c5e2d8ea2983701d5166a53e27efd6",
+      "parameter_roles": {
+        "channel": {
+          "role": "resource",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "list",
+        "resource_type": "channel",
+        "fields": {
+          "channel": "channel"
+        },
+        "effects": [
+          "read"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "target_field": "channel",
+      "result_values": [
+        {
+          "label": "user_name",
+          "path": [
+            "*"
+          ]
+        }
+      ],
+      "observed_parameters": {
+        "channel": "channel_name"
+      },
+      "identity_scopes": {
+        "channel": [
+          "slack",
+          "channels"
+        ]
+      }
+    },
+    "invite_user_to_slack": {
+      "capability": {
+        "actions": [
+          "invite_user_to_slack"
+        ],
+        "sensitive_params": [
+          "user",
+          "user_email"
+        ],
+        "persistence": "allowed",
+        "effect_type": "external_communication",
+        "target_type": "recipient",
+        "external_share": "allowed"
+      },
+      "schema_hash": "sha256:2f9ea59ecad750b3bca0c19a59827d4acdeb25e4849101d55dc701455067b868",
+      "parameter_roles": {
+        "user": {
+          "role": "resource",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "user_email": {
+          "role": "destination",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "create",
+        "resource_type": "membership",
+        "fields": {
+          "user": "user",
+          "user_email": "user_email"
+        },
+        "effects": [
+          "create",
+          "external_communication"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "target_field": "user",
+      "policy_aliases": {
+        "recipient": "user_email"
+      },
+      "observed_parameters": {
+        "user_email": "contact_email"
+      },
+      "review_data_use": {
+        "content_fields": [],
+        "semantic_resources": false,
+        "reason": "Role-specific semantic authorization remains bound to the exact call and state; no task-specific permission.",
+        "flow_review": true,
+        "new_identity_fields": [
+          "user"
+        ]
+      },
+      "created_identity": {
+        "parameter": "user",
+        "collection": [
+          "slack",
+          "users"
+        ],
+        "label": "user_name",
+        "reason": "Successful native create must add this exact identity to the locked task namespace before a downstream identity receipt is issued."
+      }
+    },
+    "remove_user_from_slack": {
+      "capability": {
+        "actions": [
+          "remove_user_from_slack"
+        ],
+        "sensitive_params": [
+          "user"
+        ],
+        "persistence": "allowed",
+        "effect_type": "data_mutation",
+        "target_type": "object"
+      },
+      "schema_hash": "sha256:c956e1f3c2c56c3802973753346179b214db3d0852192ebeb0938bd507ca11e0",
+      "parameter_roles": {
+        "user": {
+          "role": "resource",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "delete",
+        "resource_type": "membership",
+        "fields": {
+          "user": "user"
+        },
+        "effects": [
+          "delete"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "target_field": "user",
+      "observed_parameters": {
+        "user": "user_name"
+      },
+      "identity_scopes": {
+        "user": [
+          "slack",
+          "users"
+        ]
+      },
+      "review_data_use": {
+        "content_fields": [],
+        "semantic_resources": false,
+        "reason": "Role-specific semantic authorization remains bound to the exact call and state; no task-specific permission.",
+        "flow_review": true
+      }
+    },
+    "get_webpage": {
+      "capability": {
+        "actions": [
+          "get_webpage"
+        ],
+        "sensitive_params": [
+          "url"
+        ],
+        "sources": [
+          "external_untrusted"
+        ],
+        "network_egress": "allowed",
+        "target_type": "url",
+        "effect_type": "network_navigation"
+      },
+      "schema_hash": "sha256:0312fec0403e187e4a28deca2cd6bd40d25b5159d6b08ccd65743080a9f0818a",
+      "parameter_roles": {
+        "url": {
+          "role": "destination",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "read",
+        "resource_type": "webpage",
+        "fields": {
+          "url": "url"
+        },
+        "effects": [
+          "read",
+          "network_egress"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "target_field": "url",
+      "result_values": [
+        {
+          "label": "business_text",
+          "path": []
+        },
+        {
+          "label": "contact_email",
+          "path": [],
+          "extract": "emails"
+        },
+        {
+          "label": "web_address",
+          "path": [],
+          "extract": "urls"
+        }
+      ],
+      "observed_parameters": {
+        "url": "web_address"
+      },
+      "review_data_use": {
+        "content_fields": [],
+        "semantic_resources": false,
+        "reason": "Role-specific semantic authorization remains bound to the exact call and state; no task-specific permission.",
+        "url_fields": [
+          "url"
+        ],
+        "flow_review": true
+      }
+    },
+    "post_webpage": {
+      "capability": {
+        "actions": [
+          "post_webpage"
+        ],
+        "sensitive_params": [
+          "url",
+          "content"
+        ],
+        "persistence": "allowed",
+        "effect_type": "external_communication",
+        "target_type": "url",
+        "external_share": "allowed",
+        "network_egress": "allowed"
+      },
+      "schema_hash": "sha256:dfc9b92e9da514d39073388f742f52738bc990a22b0495598327c517f0ff5adc",
+      "parameter_roles": {
+        "url": {
+          "role": "destination",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        },
+        "content": {
+          "role": "content",
+          "reason": "Operator-reviewed against this suite tool implementation and pinned schema; no task-specific values or permission."
+        }
+      },
+      "semantic_action": {
+        "version": 1,
+        "operation": "update",
+        "resource_type": "webpage",
+        "fields": {
+          "url": "url",
+          "content": "content"
+        },
+        "effects": [
+          "update",
+          "external_communication",
+          "network_egress"
+        ],
+        "reason": "Reviewed simulator effects; a declaration bounds effects and never supplies task authorization."
+      },
+      "target_field": "url",
+      "observed_parameters": {
+        "url": "web_address"
+      },
+      "review_data_use": {
+        "content_fields": [
+          "content"
+        ],
+        "semantic_resources": false,
+        "reason": "Role-specific semantic authorization remains bound to the exact call and state; no task-specific permission.",
+        "url_fields": [
+          "url"
+        ],
+        "flow_review": true
+      }
+    }
+  }
+}

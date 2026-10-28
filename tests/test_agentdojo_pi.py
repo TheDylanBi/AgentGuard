@@ -169,7 +169,7 @@ class PiSmokeTests(FixtureMixin, unittest.TestCase):
               expected_utility=None, steps=None, final_violation=False,
               finish_reason=None, reasoning=False, thinking_format=None, response_text=None,
               context_window=32000, response_usage=None, action_output_budget="sdk",
-              final_finish_reason=None, intent_format="rules", boundary=None):
+              final_finish_reason=None, intent_format="rules", boundary=None, query_request="Run the fixture tool."):
         requests = []
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args):
@@ -185,6 +185,7 @@ class PiSmokeTests(FixtureMixin, unittest.TestCase):
                     return
                 has_result = any(m["role"] == "tool" for m in body["messages"])
                 turn = sum(m["role"] == "tool" for m in body["messages"])
+                if steps and any('answer' in step for step in steps):turn=len(requests)-1
                 delta = {"role": "assistant", "content": "Completed fixture."} if has_result else {
                     "role": "assistant", "tool_calls": [{"index": 0, "id": "fixture_call", "type": "function",
                         "function": {"name": tool, "arguments": json.dumps(args or {})}}]}
@@ -193,10 +194,15 @@ class PiSmokeTests(FixtureMixin, unittest.TestCase):
                     delta = {"role": "assistant", "tool_calls": [{"index": 0, "id": f"fixture_{turn}",
                         "type": "function", "function": {"name": tool, "arguments": json.dumps(sequence[turn])}}]}
                 if steps and turn < len(steps):
-                    has_result = False
                     step = steps[turn]
-                    delta = {"role": "assistant", "tool_calls": [{"index": 0, "id": f"step_{turn}",
-                        "type": "function", "function": {"name": step["tool"], "arguments": json.dumps(step["arguments"])}}]}
+                    if 'answer' in step:
+                        has_result=True
+                        delta={'role':'assistant','content':step['answer']}
+                    else:
+                        has_result = False
+                        step_args=step['arguments'](body) if callable(step['arguments']) else step['arguments']
+                        delta = {"role": "assistant", "tool_calls": [{"index": 0, "id": f"step_{turn}",
+                            "type": "function", "function": {"name": step["tool"], "arguments": json.dumps(step_args)}}]}
                 if final_violation and has_result:
                     has_result = False
                     delta = {"role": "assistant", "tool_calls": [{"index": 0, "id": "forbidden_final_call",
@@ -246,9 +252,9 @@ class PiSmokeTests(FixtureMixin, unittest.TestCase):
         before = self.env.model_dump()
         with patch("adapters.agentdojo_pi.pipeline.intent_llm_configured", return_value=True), \
              patch("policy.intent_anchor.intent_llm_configured", return_value=True), \
-             patch("adapters.agentdojo_pi.pipeline.anchor_rules_llm", return_value=rules or []), \
-             patch("policy.intent_anchor.anchor_boundary_llm", return_value=boundary), \
-             patch("adapters.agentdojo_pi.pipeline.anchor_effect_llm", return_value={}):
+             patch("adapters.agentdojo_pi.pipeline.anchor_rules_llm", return_value=rules or []) as initial_rules, \
+             patch("policy.intent_anchor.anchor_boundary_llm", return_value=boundary) as initial_boundary, \
+             patch("adapters.agentdojo_pi.pipeline.anchor_effect_llm", return_value={}) as initial_effects:
             if broken:
                 with self.assertRaises(RuntimeError):
                     pipeline.query("Run the fixture tool.", self.runtime, self.env)
@@ -288,13 +294,21 @@ class PiSmokeTests(FixtureMixin, unittest.TestCase):
                     self.assertEqual(list(result["utility_results"].values()), [expected_utility])
                 messages = None
             else:
-                _, _, _, messages, _ = pipeline.query("Run the fixture tool.", self.runtime, self.env)
+                _, _, _, messages, _ = pipeline.query(query_request, self.runtime, self.env)
+            if intent_format == "review":
+                initial_rules.assert_not_called()
+                initial_boundary.assert_not_called()
+                initial_effects.assert_not_called()
         self.assertEqual(pipeline.runs[-1]["status"], "stopped" if final_violation else "answered_after_stop" if stopped else "completed")
         count = len(steps or sequence) + 1 if (steps or sequence) else 2
+        if steps and 'answer' in steps[-1]:count=len(steps)
+        if intent_format=='review' and not stopped and not any('answer' in step for step in steps or []):
+            count+=1
         self.assertEqual(len(requests), count * (2 if official == "attack" else 1))
         self.assertEqual({t["function"]["name"] for t in requests[0]["tools"]}, set(self.runtime.functions))
-        self.assertEqual("Task policy has candidate allow rules" in str(requests[0]["messages"]), mode == "guarded")
-        if messages:
+        self.assertEqual("Task policy has candidate allow rules" in str(requests[0]["messages"]),
+                         mode == "guarded" and intent_format != "review")
+        if messages and messages[1]['tool_calls']:
             self.assertEqual(messages[1]["tool_calls"][0].function, tool)
         return pipeline, before, messages, requests
 

@@ -34,3 +34,12 @@ test("both token fields respect SDK remaining budget and configured ceiling", ()
     }
   }
 });
+
+test("a small remaining cap is diagnosed without overriding the SDK", () => {
+  const model = { api: "openai-completions", maxTokens: 2048, contextWindow: 32768 };
+  const result = prepareRequest({ max_tokens: 52 }, model, "model");
+  assert.equal(result.payload.max_tokens, 52);
+  assert.equal(result.diagnostic.context_output_budget_low, true);
+  assert.equal(result.diagnostic.context_budget_exhausted, false);
+  assert.equal(prepareRequest({max_tokens:2048}, model, "model").diagnostic.context_output_budget_low, false);
+});

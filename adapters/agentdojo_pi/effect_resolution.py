@@ -9,7 +9,7 @@ from policy.tool_contract import typed_equal
 def validate_effect_declarations(spec, fields):
     resolver = spec.get("effect_recipients")
     mode = spec.get("dataflow_mode")
-    if mode not in (None, "initial_arguments", "bound_resource_update", "declared_arguments"):
+    if mode not in (None, "initial_arguments", "bound_resource_update", "declared_arguments", "bound_resource_arguments"):
         raise ValueError("Unknown reviewed dataflow mode")
     origins = spec.get("dataflow_fields")
     if mode == "declared_arguments":
@@ -35,8 +35,9 @@ def validate_effect_declarations(spec, fields):
     if (resolver or mode) and not spec.get("schema_hash"):
         raise ValueError("Effect/dataflow declarations require pinned schema")
     if resolver is not None:
-        if (not isinstance(resolver, dict) or set(resolver) != {
-                "collection_path", "argument", "recipients_field", "reason"} or
+        standard = {"collection_path", "argument", "recipients_field", "reason"}
+        if (not isinstance(resolver, dict) or set(resolver) not in (
+                standard, standard | {'key_field','recipient_argument'}) or
                 not isinstance(resolver["argument"], str) or resolver["argument"] not in fields or
                 not isinstance(resolver["collection_path"], list) or
                 not 1 <= len(resolver["collection_path"]) <= 8 or
@@ -44,6 +45,10 @@ def validate_effect_declarations(spec, fields):
                 not isinstance(resolver["recipients_field"], str) or not resolver["recipients_field"] or
                 not isinstance(resolver["reason"], str) or not resolver["reason"].strip()):
             raise ValueError("Invalid reviewed recipient resolver")
+        if 'key_field' in resolver and (
+                not isinstance(resolver['key_field'],str) or not resolver['key_field']
+                or resolver['recipient_argument'] not in fields):
+            raise ValueError('Native effect resolver requires a record key and recipient parameter')
     if mode == "bound_resource_update" and resolver is None:
         raise ValueError("Bound resource dataflow requires an effect resolver")
 
@@ -58,6 +63,20 @@ def resolve_recipients(spec, arguments, environment):
             raise ValueError("Effect resource collection unavailable")
         collection = collection[part]
     key = arguments.get(resolver["argument"])
+    if 'key_field' in resolver:
+        objects=list(collection.values()) if isinstance(collection,dict) else collection
+        if type(key) not in (str,int) or not isinstance(objects,list) or len(objects)>2048:
+            raise ValueError('Native effect resource unavailable')
+        matches=[row for row in objects if isinstance(row,dict) and typed_equal(row.get(resolver['key_field']),key)]
+        if len(matches)!=1:
+            raise ValueError('Native effect resource missing or ambiguous')
+        resource=matches[0]
+        requested=arguments.get(resolver['recipient_argument'])
+        recipient=resource.get(resolver['recipients_field']) if requested is None else requested
+        if not isinstance(recipient,str) or not recipient:
+            raise ValueError('Native effect recipient unavailable')
+        return [recipient], {'resource_hash':object_hash(resource),'recipients_hash':object_hash([recipient]),
+                             'argument':resolver['argument'],'key_field':resolver['key_field']}
     if not isinstance(key, str) or not isinstance(collection, dict) or key not in collection:
         raise ValueError("Effect resource unavailable")
     resource = collection[key]

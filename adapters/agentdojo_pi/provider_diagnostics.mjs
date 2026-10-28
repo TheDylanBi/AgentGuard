@@ -33,6 +33,7 @@ export function prepareRequest(payload, model, mode = "sdk") {
     sent_max_tokens: payload[field], context_window: model.contextWindow,
     budget_source: "sdk_context_cap",
     context_budget_exhausted: Number.isInteger(sdkBudget) && sdkBudget <= 1,
+    context_output_budget_low: Number.isInteger(sdkBudget) && sdkBudget < Math.min(256, model.maxTokens ?? 256),
     ...(Number.isInteger(sdkBudget) && sdkBudget <= 1
       ? { budget_reason: "sdk_remaining_output_budget_at_floor" } : {}),
     message_count: payload.messages?.length, tool_count: payload.tools?.length ?? 0 } };

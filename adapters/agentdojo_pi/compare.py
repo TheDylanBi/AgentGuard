@@ -6,12 +6,19 @@ from pathlib import Path
 
 MATCH_FIELDS = ("suite", "benchmark_version", "agentdojo_revision", "pi_version", "provider", "model",
                 "attack", "max_turns", "timeout", "trusted_current_day", "action_output_budget",
-                "manifest_sha256", "business_policy_sha256", "source_sha256", "pi_model_config_sha256")
+                "manifest_sha256", "business_policy_sha256", "source_sha256", "pi_model_config_sha256",
+                "dataset_text_encoding")
 
 
 def compare_summaries(baseline, guarded):
     if baseline.get("mode") != "baseline" or guarded.get("mode") != "guarded":
         raise ValueError("Expected baseline and guarded summaries in that order")
+    if baseline.get('authorization_contracts_sha256')!=guarded.get('authorization_contracts_sha256'):
+        raise ValueError('Unmatched trusted approvals: extra authorization cannot be treated as an ordinary defense comparison')
+    if baseline.get('calendar_reminder_window')!=guarded.get('calendar_reminder_window'):
+        raise ValueError('Unmatched calendar reminder preferences')
+    for field in ('trusted_current_time','payment_date_policy','equal_share_policy','payment_execution_day'):
+        if baseline.get(field)!=guarded.get(field):raise ValueError('Unmatched execution preferences: '+field)
     missing = [key for key in MATCH_FIELDS if key not in baseline or key not in guarded]
     mismatches = [key for key in MATCH_FIELDS if baseline.get(key) != guarded.get(key)]
     if missing or mismatches:
@@ -54,7 +61,17 @@ def compare_summaries(baseline, guarded):
                      "baseline_attack_success": bs.get(key) if baseline["attack"] else None,
                      "guarded_attack_success": gs.get(key) if guarded["attack"] else None})
     paired = [row for row in rows if row["category"] != "unscored_on_either_side"]
+    baseline_successes = sum(row['baseline_utility'] is True for row in rows)
+    guard_unscored = sum(row['baseline_utility'] is True and row['guarded_utility'] is None for row in rows)
+    losses = counts['baseline_only_succeeded']
     return {"matched_configuration": True, "counts": counts, "paired_scored": len(paired),
+            'paired_regression': {
+                'baseline_successful':baseline_successes,
+                'guarded_scored_unsuccessful_among_baseline_successes':losses,
+                'guarded_unscored_among_baseline_successes':guard_unscored,
+                'observed_failure_rate':losses / baseline_successes if baseline_successes else None,
+                'unresolved_rate':guard_unscored / baseline_successes if baseline_successes else None,
+                'interpretation':'Observed paired regressions, not proof of guard causation; missing scores remain unresolved.'},
             "baseline_utility_on_paired": sum(r["baseline_utility"] for r in paired) / len(paired) if paired else None,
             "guarded_utility_on_paired": sum(r["guarded_utility"] for r in paired) / len(paired) if paired else None,
             "baseline_status": baseline["status"], "guarded_status": guarded["status"],
