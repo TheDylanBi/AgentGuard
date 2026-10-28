@@ -197,6 +197,30 @@ class ResponseTests(unittest.TestCase):
         self.assertEqual(reply.tool_calls,[{'name':'read','parameters':{}}])
         self.assertEqual(t.records[0]['diagnostic']['code'],'invalid_tool_arguments_json')
 
+    def test_plan_returned_during_action_gets_one_phase_specific_repair(self):
+        plan = json.dumps([{'message': 'Read the report', 'tool_use': ['read']}])
+        good = self.value(None, calls=[{'function': {'name': 'read', 'arguments': '{}'}}])
+        t = self.transport([self.value(plan), good])
+        query = self.query()
+        query.tools = [{'type': 'function', 'function': {'name': 'read', 'parameters': None}}]
+        reply, *_ = t(query)
+        self.assertEqual(reply.tool_calls, [{'name': 'read', 'parameters': {}}])
+        self.assertEqual(t.records[0]['diagnostic']['code'], 'plan_returned_during_execution')
+        repair = t.session.post.call_args_list[1].kwargs['json']['messages'][0]['content']
+        self.assertIn('CURRENT PHASE IS EXECUTION', repair)
+        self.assertIn('No proposed call', repair)
+
+    def test_connection_failure_before_dispatch_is_retried_once(self):
+        t = self.transport([])
+        response = Mock(status_code=200)
+        response.json.return_value = self.value()
+        t.session.post.side_effect = [ConnectionError('temporary'), response]
+        reply, *_ = t(self.query())
+        self.assertEqual(reply.response_message, 'done')
+        self.assertEqual(t.requests, 2)
+        self.assertEqual(t.records[0]['diagnostic'], {
+            'stage': 'action_model', 'code': 'transport', 'error_type': 'ConnectionError'})
+
     def test_repeated_protocol_failure_remains_unscored_error(self):
         t=self.transport([{'choices':[]},{'choices':[]}])
         with self.assertRaises(ActionTransportError) as e:t(self.query())

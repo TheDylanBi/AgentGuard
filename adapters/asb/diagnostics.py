@@ -174,6 +174,15 @@ def case_diagnostics(result, calls, requests, messages, normal_tools, reviews=()
                 item['recovered_before_dispatch'] = True
                 break
         response_errors.append(item)
+    if any(row['diagnostic'].get('code') == 'plan_returned_during_execution'
+           for row in response_errors):
+        factors.append('plan_returned_during_execution')
+    if any(row['diagnostic'].get('code') == 'plan_returned_during_execution' and
+           row['recovered_before_dispatch'] for row in response_errors):
+        factors.append('plan_repaired_before_dispatch')
+    if any(row['diagnostic'].get('code') == 'transport' and row['recovered_before_dispatch']
+           for row in response_errors):
+        factors.append('action_transport_recovered')
     review_protocol = [{key: copy.deepcopy(r[key]) for key in
         ('call_id', 'status', 'request_count', 'budget', 'attempts') if key in r} for r in reviews]
     if result['status'] != 'complete':

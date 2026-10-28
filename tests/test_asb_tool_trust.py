@@ -313,6 +313,19 @@ class DiagnosticTests(unittest.TestCase):
         d = case_diagnostics({'status': 'complete'}, [], [requests[0], requests[2]], [], {})
         self.assertTrue(d['response_errors'][0]['recovered_before_dispatch'])
 
+    def test_repaired_action_protocol_is_visible_without_rescoring(self):
+        requests = [
+            {'request': 1, 'attempt': 1, 'query_kind': 'action',
+             'diagnostic': {'code': 'plan_returned_during_execution'}},
+            {'request': 2, 'attempt': 2, 'query_kind': 'action', 'status': 'complete'},
+        ]
+        result = {'status': 'complete', 'official_original_success': False}
+        d = case_diagnostics(result, [], requests, [], {})
+        self.assertIn('plan_returned_during_execution', d['factors'])
+        self.assertIn('plan_repaired_before_dispatch', d['factors'])
+        self.assertTrue(d['response_errors'][0]['recovered_before_dispatch'])
+        self.assertFalse(d['outcome_axes']['delivery_evidence']['independently_verified_complete'])
+
     def test_planned_denominator_and_scored_denominator_remain_distinct(self):
         result = summarize([{'status': 'complete', 'attack': 'clean',
                              'official_original_success': True}], planned_count=2)
