@@ -132,6 +132,7 @@ class SimulationHost:
     def __init__(self, runtime, env, manifest, signer, audit, *, mode, rules=None,
                  effect_profile=None, intent_text="", business_policy=None, task_id=None,
                  reviewer=None, trusted_contracts=None, scoped_recovery=None, calendar_reminder_window=None,
+                 ablation='full',
                  trusted_current_day=None, payment_date_policy='explicit',equal_share_policy='explicit',payment_execution_day=None):
         if mode not in ("baseline", "guarded"):
             raise ValueError("Unknown evaluation mode")
@@ -159,6 +160,11 @@ class SimulationHost:
         if reviewer is not None and (mode != "guarded" or rules or effect_profile is not None):
             raise ValueError("Call review must not mix with initial task policies or baseline")
         self.reviewer = reviewer
+        if ablation not in {'full', 'no-semantic-review', 'no-hard-gate'}:
+            raise ValueError('Unknown simulation ablation')
+        if ablation != 'full' and (mode != 'guarded' or reviewer is None or trusted_contracts):
+            raise ValueError('Ablations require guarded review without trusted contracts')
+        self.ablation = ablation
         from policy.task_derivations import validate_reminder_window
         self.calendar_reminder_window=validate_reminder_window(calendar_reminder_window)
         from policy.execution_preferences import instruction
@@ -524,8 +530,14 @@ class SimulationHost:
             return result
 
         decision = hard_check()
-        if decision["verdict"] != "PASS":
+        if self.ablation == 'no-hard-gate':
+            self.audit.append({'id': call_id+':ablation', 'event': 'simulation_ablation',
+                               'ablation': self.ablation, 'ignored_hard_decision': decision})
+        elif decision["verdict"] != "PASS":
             return decision, effect_record
+        if self.ablation == 'no-semantic-review':
+            return {'verdict': 'ALLOW', 'rule': 'ablation.no_semantic_review',
+                    'reason': 'Simulation ablation: hard checks passed; semantic review omitted'}, effect_record
         def boundary_hash():
             certificate = self.registry.verify(self.certificates[name])
             return object_hash({"state": self.env.model_dump(mode="json"), "taint": self.taint,
@@ -602,10 +614,13 @@ class SimulationHost:
                     "fields": [adapter.reverse[field] for field in review["fields"]]}, effect_record
         # Approval covers only this call, under the same lock and state. The
         # normalized arguments are the exact values subsequently executed.
-        final = hard_check()
+        final = (hard_check() if self.ablation != 'no-hard-gate' else {'verdict': 'PASS'})
         if final["verdict"] == "PASS":
             final = {"verdict": "ALLOW", "reason": "This exact action passed independent semantic review and hard checks",
                      "rule": "review.authorized"}
+            if self.ablation == 'no-hard-gate':
+                final.update(reason='Simulation ablation: semantic review allowed; hard policy gate omitted',
+                             rule='ablation.no_hard_gate')
         return final, effect_record
 
     def resource_coverage(self):

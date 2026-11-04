@@ -42,6 +42,7 @@ class PiPipeline(BasePipelineElement):
                  mode, output, node="node", business_policy=None, max_turns=16, timeout=300,
                  trusted_current_day=None, action_output_budget="sdk", read_preflight=False, intent_format="rules",
                  authorization_contracts=None, review_coordination='scoped', calendar_reminder_window=None,
+                 ablation='full',
                  trusted_current_time=None, payment_date_policy='explicit',equal_share_policy='explicit',payment_execution_day=None):
         self.manifest_path = Path(manifest).resolve()
         self.output = Path(output).resolve()
@@ -58,6 +59,12 @@ class PiPipeline(BasePipelineElement):
         if intent_format == "review" and (mode != "guarded" or read_preflight):
             raise ValueError("review requires guarded mode without read-preflight")
         self.intent_format = intent_format
+        if ablation not in {'full', 'no-semantic-review', 'no-hard-gate'}:
+            raise ValueError('Unknown simulation ablation')
+        if ablation != 'full' and (mode != 'guarded' or intent_format != 'review' or authorization_contracts):
+            raise ValueError('Ablations require guarded review without trusted contracts')
+        self.ablation = ablation
+        self.config['ablation'] = ablation
         if review_coordination not in {'legacy','scoped'}:raise ValueError('Unknown review coordination profile')
         self.review_coordination=review_coordination if intent_format=='review' else 'legacy'
         self.config['reviewCoordination']=self.review_coordination
@@ -275,7 +282,7 @@ class PiPipeline(BasePipelineElement):
                                   trusted_current_day=self.trusted_current_day,payment_date_policy=self.payment_date_policy,
                                   payment_execution_day=self.payment_execution_day,
                                   equal_share_policy=self.equal_share_policy,
-                                  scoped_recovery=self.review_coordination=='scoped')
+                                  scoped_recovery=self.review_coordination=='scoped', ablation=self.ablation)
             # Task-specific planning hint; tool schemas remain complete and host
             # authorization remains mandatory. No policy reasons or tool data.
             from policy.planning import planning_instruction
@@ -318,6 +325,7 @@ class PiPipeline(BasePipelineElement):
             # Keep public verification material, never the ephemeral private key.
             (self.output / f"audit-{run_id}.pub").write_bytes((Path(control) / "key.pub").read_bytes())
             stats = {"id": run_id, "status": "running", "mode": self.mode,
+                     "ablation": self.ablation,
                      "query_hash": object_hash(query),
                      "manifest_hash": object_hash(manifest),
                      "effective_rules_hash": object_hash(host.rules),

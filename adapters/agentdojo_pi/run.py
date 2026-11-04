@@ -79,6 +79,8 @@ def record_results(metadata, result, runs, *, has_attack, state=None, final=True
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("baseline", "guarded"), required=True)
+    parser.add_argument('--ablation', choices=('full', 'no-semantic-review', 'no-hard-gate'), default='full',
+                        help='Simulation only: omit semantic review or ignore deterministic policy gate verdicts')
     parser.add_argument("--intent-format", choices=("rules", "boundary", "review"), default="rules",
                         help="rules/boundary: initial policy; review: experimental per-call semantic authorization")
     parser.add_argument("--suite", default="workspace")
@@ -123,6 +125,8 @@ def main(argv=None):
     parser.add_argument("--check", action="store_true", help="Validate installation and manifest without model calls")
     parser.add_argument("--describe-contracts", action="store_true", help="Include parameter contracts in --check output")
     args = parser.parse_args(argv)
+    if args.ablation != 'full' and (args.mode != 'guarded' or args.intent_format != 'review' or args.authorization_contracts):
+        parser.error('ablation requires guarded review without authorization-contracts')
     dataset_encoding = locale.getpreferredencoding(False)
     if dataset_encoding.lower().replace('-', '') not in {'utf8', 'utf8sig'}:
         import warnings
@@ -214,6 +218,7 @@ def main(argv=None):
         read_preflight=args.read_preflight,
         intent_format=args.intent_format,
         review_coordination=args.review_coordination,
+        ablation=args.ablation,
         calendar_reminder_window=args.calendar_reminder_window,
         trusted_current_time=args.trusted_current_time,payment_date_policy=args.payment_date_policy,
         payment_execution_day=payment_day,
@@ -228,6 +233,7 @@ def main(argv=None):
     metadata = {"status": "running", "evaluation_scope": "simulation_policy_layer",
         "dataset_text_encoding":dataset_encoding,
         "mode": args.mode, "suite": args.suite, "benchmark_version": args.benchmark_version,
+        "ablation": args.ablation,
         "agentdojo_revision": revision.stdout.strip() if revision.returncode == 0 else None,
         "pi_version": package["version"], "provider": args.provider, "model": args.model,
         "continue_on_error": args.continue_on_error, "max_consecutive_errors": args.max_consecutive_errors,
