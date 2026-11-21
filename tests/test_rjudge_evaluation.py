@@ -2,9 +2,12 @@ import ast
 import io
 import json
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.request import Request, urlopen
 from unittest.mock import patch
 
 from demo.attacks.rjudge_judgment import (
@@ -13,6 +16,10 @@ from demo.attacks.rjudge_judgment import (
 )
 from demo.attacks.replay_rjudge_symbolic import load_records, policy_evidence, report, main
 from demo.attacks.rjudge_parse import parse_action
+from demo.attacks.rjudge_guard_proxy import (
+    ProxyConfig, GuardProxy, reconstruct_public_example, request_phase,
+    RequestValidationError, EVIDENCE_PREFIX, make_handler,
+)
 
 
 def example():
@@ -92,6 +99,109 @@ class RJudgeTests(unittest.TestCase):
             return {"observations": []}
         run_judgment([{"example": example(), "category": "Program"}], lambda *a: "safe", "model", evidence)
         self.assertEqual(set(seen[0]), {"profile", "contents"})
+
+    def test_guard_proxy_reconstructs_only_public_official_messages(self):
+        messages = build_messages(example()) + [{"role": "user", "content": PROMPT_REASON}]
+        public = reconstruct_public_example(messages)
+        self.assertEqual(set(public), {"profile", "contents"})
+        self.assertEqual(public["profile"], "Agent profile")
+        turns = [turn for round_ in public["contents"] for turn in round_]
+        self.assertEqual([turn["role"] for turn in turns],
+                         ["user", "agent", "environment", "agent"])
+        self.assertEqual(parse_action(turns[1]["action"])[0][0], "read")
+        self.assertNotIn("GOLD_SECRET", json.dumps(public))
+        self.assertNotIn("hidden goal metadata", json.dumps(public))
+
+    def test_guard_proxy_inserts_cached_evidence_for_both_official_stages(self):
+        base = build_messages(example())
+        analysis_messages = base + [{"role": "user", "content": PROMPT_REASON}]
+        label_messages = analysis_messages + [
+            {"role": "assistant", "content": "analysis"},
+            {"role": "user", "content": PROMPT_PRED},
+        ]
+        calls = []
+
+        def evidence(public, **_kwargs):
+            calls.append(public)
+            return {"observations": [{"verdict": "BLOCK"}], "stop_reason": "intervention"}
+
+        proxy = GuardProxy(ProxyConfig(
+            upstream_base_url="http://127.0.0.1:1/v1",
+            upstream_model="underlying-model",
+            enable_rules=False,
+            enable_effects=False,
+        ), evidence_provider=evidence)
+        first, first_meta = proxy.prepare_request({"model": "guarded-alias", "messages": analysis_messages})
+        second, second_meta = proxy.prepare_request({"model": "guarded-alias", "messages": label_messages})
+        self.assertEqual(first["model"], "underlying-model")
+        self.assertEqual(request_phase(analysis_messages), "analysis")
+        reason_index = next(i for i, message in enumerate(first["messages"])
+                            if message.get("content") == PROMPT_REASON)
+        inserted = first["messages"][reason_index - 1]["content"]
+        self.assertTrue(inserted.startswith(EVIDENCE_PREFIX))
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(first_meta["cache_hit"])
+        self.assertTrue(second_meta["cache_hit"])
+        self.assertEqual(second["messages"][-1]["content"], PROMPT_PRED)
+
+    def test_guard_proxy_rejects_non_rjudge_and_streaming_requests(self):
+        with self.assertRaises(RequestValidationError):
+            reconstruct_public_example([{"role": "user", "content": "hello"}])
+        proxy = GuardProxy(ProxyConfig(
+            upstream_base_url="http://127.0.0.1:1/v1",
+            upstream_model="model", enable_rules=False, enable_effects=False,
+        ), evidence_provider=lambda *_args, **_kwargs: {"observations": []})
+        with self.assertRaises(RequestValidationError):
+            proxy.prepare_request({"stream": True, "messages": build_messages(example()) + [
+                {"role": "user", "content": PROMPT_REASON}
+            ]})
+
+    def test_guard_proxy_http_forwards_openai_compatible_response(self):
+        received = []
+
+        class UpstreamHandler(BaseHTTPRequestHandler):
+            def do_POST(self):  # noqa: N802
+                length = int(self.headers["Content-Length"])
+                received.append((self.path, json.loads(self.rfile.read(length))))
+                raw = json.dumps({"choices": [{"message": {"content": "analysis"}}]}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def log_message(self, _format, *_args):
+                return
+
+        upstream = ThreadingHTTPServer(("127.0.0.1", 0), UpstreamHandler)
+        upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+        upstream_thread.start()
+        proxy = GuardProxy(ProxyConfig(
+            upstream_base_url=f"http://127.0.0.1:{upstream.server_port}/v1",
+            upstream_model="underlying-model", enable_rules=False, enable_effects=False,
+        ), evidence_provider=lambda *_args, **_kwargs: {
+            "observations": [], "stop_reason": "end"
+        })
+        server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(proxy))
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        try:
+            body = json.dumps({"model": "guarded-alias", "messages":
+                build_messages(example()) + [{"role": "user", "content": PROMPT_REASON}]}).encode()
+            request = Request(f"http://127.0.0.1:{server.server_port}/v1/chat/completions",
+                              data=body, headers={"Content-Type": "application/json"})
+            with urlopen(request, timeout=5) as response:
+                value = json.load(response)
+            self.assertEqual(value["choices"][0]["message"]["content"], "analysis")
+            self.assertEqual(received[0][0], "/v1/chat/completions")
+            self.assertEqual(received[0][1]["model"], "underlying-model")
+            self.assertTrue(any(message.get("content", "").startswith(EVIDENCE_PREFIX)
+                                for message in received[0][1]["messages"]))
+        finally:
+            server.shutdown()
+            server.server_close()
+            upstream.shutdown()
+            upstream.server_close()
 
     def test_loader_fails_instead_of_silently_skipping(self):
         with tempfile.TemporaryDirectory() as root:

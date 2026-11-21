@@ -60,8 +60,44 @@ export function suiteExtension(tools, model, budgetMode = "sdk") {
       contextView = prepared.diagnostic;
       return { messages: prepared.messages };
     });
-    pi.on("before_provider_request", (event) => {
+    pi.on("before_provider_request", async (event) => {
       const prepared = prepareRequest(event.payload, model, budgetMode);
+      if (process.env.INTENTNOTARY_PI_VLLM_TOKENIZE === "1") {
+        const endpoint = new URL("/tokenize", model.baseUrl);
+        if (!["127.0.0.1", "localhost", "[::1]"].includes(endpoint.hostname)) {
+          throw new Error("Pi tokenizer requires a loopback vLLM endpoint");
+        }
+        const request = prepared.payload;
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(15000),
+          body: JSON.stringify({
+            model: model.id,
+            messages: request.messages,
+            add_generation_prompt: true,
+            chat_template_kwargs: { ...request.chat_template_kwargs, tools: request.tools },
+          }),
+        });
+        if (!response.ok) throw new Error(`vLLM tokenizer HTTP ${response.status}`);
+        const { count, max_model_len: context } = await response.json();
+        if (!Number.isInteger(count) || count < 0 || context !== model.contextWindow) {
+          throw new Error("vLLM tokenizer reported an unexpected context or token count");
+        }
+        // Leave room for differences between the tokenization and generation endpoints.
+        const remaining = context - count - 64;
+        if (remaining < 1) throw new Error("vLLM context length exceeded");
+        delete request.max_completion_tokens;
+        request.max_tokens = Math.min(remaining, model.maxTokens);
+        Object.assign(prepared.diagnostic, {
+          budget_source: "vllm_tokenizer",
+          prompt_tokens: count,
+          sent_max_tokens: request.max_tokens,
+          context_budget_exhausted: false,
+          context_output_budget_low: request.max_tokens < Math.min(256, model.maxTokens),
+        });
+        delete prepared.diagnostic.budget_reason;
+      }
       send({ type: "provider_request", diagnostic: { ...prepared.diagnostic, context_view: contextView } });
       return prepared.payload;
     });

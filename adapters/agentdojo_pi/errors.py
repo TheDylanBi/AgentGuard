@@ -11,5 +11,5 @@ class ActionModelError(RuntimeError):
     def task_local(self):
         return self.diagnostic.get("status") in {
             "truncated_output", "missing_final_answer", "tool_rejection_budget_exhausted",
-            "context_limit", "tool_parse_error", "content_filter",
+            "context_limit", "tool_parse_error", "content_filter", "task_deadline",
         }

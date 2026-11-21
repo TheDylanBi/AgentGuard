@@ -10,7 +10,7 @@ import time
 
 from agentdojo.task_suite.load_suites import get_suite
 from agentdojo.functions_runtime import FunctionsRuntime
-from .host import load_manifest, make_contract, PROJECT
+from .host import SIMULATION_ABLATIONS, load_manifest, make_contract, PROJECT
 from attestation.hashing import object_hash
 
 
@@ -79,8 +79,8 @@ def record_results(metadata, result, runs, *, has_attack, state=None, final=True
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("baseline", "guarded"), required=True)
-    parser.add_argument('--ablation', choices=('full', 'no-semantic-review', 'no-hard-gate'), default='full',
-                        help='Simulation only: omit semantic review or ignore deterministic policy gate verdicts')
+    parser.add_argument('--ablation', choices=SIMULATION_ABLATIONS, default='full',
+                        help='Simulation only: select a component to ablate in guarded review mode')
     parser.add_argument("--intent-format", choices=("rules", "boundary", "review"), default="rules",
                         help="rules/boundary: initial policy; review: experimental per-call semantic authorization")
     parser.add_argument("--suite", default="workspace")
@@ -187,7 +187,7 @@ def main(argv=None):
         parser.error("provider and model are required for evaluation")
     from .pipeline import PiPipeline
     from policy.intent_anchor import intent_llm_configured
-    if args.mode == "guarded" and not intent_llm_configured():
+    if args.mode == "guarded" and args.ablation != 'no-semantic-review' and not intent_llm_configured():
         parser.error("Configure independent ICB_INTENT_LLM_BASE_URL/API_KEY/MODEL")
     output = (args.output or PROJECT / "results" / f"agentdojo_pi_{args.mode}_{time.time_ns()}").resolve()
     output.mkdir(parents=True, exist_ok=False)

@@ -6,7 +6,7 @@ does not authorize using it; the original request and exact call still need revi
 import re
 from datetime import date, datetime, timedelta
 
-from .argument_provenance import _calendar_dates
+from .argument_provenance import _calendar_dates, minute_precision_timestamp
 
 MAX_TEXT = 32_000
 _CLOCK = re.compile(r'(?<![\w:])(?:(?P<h12>1[0-2]|0?[1-9])(?::(?P<m12>[0-5]\d))?\s*(?P<ampm>AM|PM)\b|(?P<h24>[01]?\d|2[0-3]):(?P<m24>[0-5]\d)(?![\w:]))', re.I)
@@ -84,7 +84,12 @@ def datetime_candidates(text, *, reference_date=None):
             low,high=min(b,m.end()),max(a,m.start())
             if any(low<=other['spans'][0][0] and other['spans'][0][1]<=high
                    for other_day,other in days.items() if other_day!=day):continue
-            if any(low<=other.start() and other.end()<=high for other in clocks if other is not m):continue
+            intervening = [other for other in clocks if low <= other.start() and other.end() <= high]
+            if intervening:
+                # A directly stated alternative inherits the same explicit date.
+                if len(intervening) != 1 or not re.fullmatch(
+                        r'\s+or\s+(?:at\s+)?', text[intervening[0].end():m.start()], re.I):
+                    continue
             if m['h12']:
                 h=int(m['h12'])%12+(12 if m['ampm'].lower()=='pm' else 0); minute=int(m['m12'] or 0)
             else: h=int(m['h24']); minute=int(m['m24'])
@@ -95,6 +100,8 @@ def datetime_candidates(text, *, reference_date=None):
 
 def temporal_proposals(request, sources, start, end, *, reminder_window=None, current_day=None):
     """Prove normalization and end=start+user duration, without assigning authority."""
+    start = minute_precision_timestamp(start)
+    end = minute_precision_timestamp(end)
     proposals={}
     durations=duration_candidates(request)
     for row in [{'value':request,'origin':'user'}, *sources[:128]]:

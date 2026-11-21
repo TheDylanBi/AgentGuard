@@ -18,6 +18,16 @@ from tests.test_role_data_flow import citing
 
 
 class DateAlgebraTests(unittest.TestCase):
+    def test_minute_equivalence_and_explicit_alternative(self):
+        request = 'Create a 1 hour event on 2024-05-19 at 10:00 or at 16:00 if busy.'
+        evidence = temporal_proposals(
+            request, [], '2024-05-19 16:00:00', '2024-05-19T17:00:00',
+        )
+        self.assertEqual(set(evidence), {'start', 'end'})
+        self.assertFalse(evidence['end']['task_authorized'])
+        for start in ('2024-05-19 16:00:01', '2024-05-19 16:00:00+01:00'):
+            self.assertEqual(temporal_proposals(request, [], start, '2024-05-19 17:00'), {})
+
     def test_explicit_natural_date_clock_and_user_duration(self):
         row={'value':'Meet on June 10, 2024 at 1 PM.','label':'business_text',
              'call_id':'read','path':[0,'body'],'result_hash':'native'}

@@ -11,6 +11,7 @@ test("errors are classified without exposing provider body, key or URL", () => {
   assert.ok(!JSON.stringify(data).includes("sk-sensitive"));
   assert.equal(errorDiagnostic("Tool call JSON parsing failed").category, "tool_parse_error");
   assert.equal(errorDiagnostic("Connection timeout").category, "transport_error");
+  assert.equal(errorDiagnostic("Stream ended without finish_reason").category, "incomplete_stream");
 });
 
 test("configured budget changes only output cap and preserves original payload", () => {

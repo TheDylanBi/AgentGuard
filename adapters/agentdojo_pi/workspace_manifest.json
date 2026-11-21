@@ -216,6 +216,7 @@
       }
     },
     "get_unread_emails": {
+      "dataflow_mode": "initial_arguments",
       "target_field": null,
       "capability": {
         "actions": [

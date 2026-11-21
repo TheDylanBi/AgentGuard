@@ -43,28 +43,40 @@ def configure_system_role(role):
 
 
 def summarize(logdir, expected):
+    expected = [(item[0], item[1], item[2] if len(item) > 2 else '') for item in expected]
     records = {}
     for path in logdir.rglob('*.json'):
         value = json.loads(path.read_text(encoding='utf-8'))
-        key = (value.get('suite_name'), value.get('user_task_id'))
-        if key not in expected or value.get('attack_type') not in (None, 'none'):
+        key = (value.get('suite_name'), value.get('user_task_id'), value.get('injection_task_id') or '')
+        if key not in expected:
             continue
         if key in records:
             raise ValueError('Duplicate official task logs')
         records[key] = value
     rows = []
-    for suite, task in expected:
-        value = records.get((suite, task))
-        rows.append({'suite': suite, 'user_task': task,
+    for suite, task, injection in expected:
+        value = records.get((suite, task, injection))
+        rows.append({'suite': suite, 'user_task': task, 'injection_task': injection or None,
                      'status': 'missing' if value is None else 'error' if value.get('error')
                      else 'scored' if type(value.get('utility')) is bool else 'unscored',
                      'official_utility': value.get('utility') if value else None,
+                     'official_attack_success': value.get('security') if value and injection else None,
                      'elapsed_seconds': value.get('duration') if value else None})
     scored = [row for row in rows if row['status'] == 'scored']
     durations = [row['elapsed_seconds'] for row in scored
                  if isinstance(row['elapsed_seconds'], (int, float))]
     successful = sum(row['official_utility'] is True for row in scored)
+    attack_rows = [row for row in scored if row['injection_task']]
+    security_scored = [row for row in attack_rows if type(row['official_attack_success']) is bool]
     return {'planned': len(rows), 'scored': len(scored), 'successful': successful,
+            'attack_scored': len(security_scored),
+            'attack_successes': sum(row['official_attack_success'] is True for row in security_scored),
+            'asr_on_scored': (sum(row['official_attack_success'] is True for row in security_scored)
+                              / len(security_scored)) if security_scored else None,
+            'ua_on_scored': successful / len(scored) if attack_rows and scored else None,
+            'safe_completion_on_scored': (sum(row['official_utility'] is True and
+                                             row['official_attack_success'] is False for row in security_scored)
+                                          / len(security_scored)) if security_scored else None,
             'errors': sum(row['status'] == 'error' for row in rows),
             'missing_or_unscored': sum(row['status'] in ('missing', 'unscored') for row in rows),
             'scoring_coverage': len(scored) / len(rows),
@@ -78,6 +90,7 @@ def summarize(logdir, expected):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--models', nargs='+', required=True, help='Exact model IDs served by one endpoint')
+    parser.add_argument('--attack', choices=('tool_knowledge',), help='Native full user-task x injection-goal evaluation')
     parser.add_argument('--base-url', default=os.getenv('OPENAI_COMPATIBLE_BASE_URL'))
     parser.add_argument('--api-key-env', default='OPENAI_COMPATIBLE_API_KEY')
     parser.add_argument('--suite', action='append', choices=('workspace', 'travel', 'banking', 'slack'))
@@ -120,8 +133,10 @@ def main(argv=None):
         tasks = args.user_task or list(suite.user_tasks)
         if len(tasks) != len(set(tasks)) or any(task not in suite.user_tasks for task in tasks):
             parser.error('Unknown or duplicate user task')
-        expected.extend((name, task) for task in tasks)
-    print(f'Native AgentDojo capability evaluation: {len(expected)} clean tasks per model', flush=True)
+        injections = list(suite.injection_tasks) if args.attack else ['']
+        expected.extend((name, task, injection) for task in tasks for injection in injections)
+    phase = 'attack pairs' if args.attack else 'clean tasks'
+    print(f'Native AgentDojo evaluation: {len(expected)} {phase} per model', flush=True)
     if args.check:
         subprocess.run([sys.executable, '-X', 'utf8', '-B', '-m', 'agentdojo.scripts.benchmark', '--help'],
                        check=True, stdout=subprocess.DEVNULL)
@@ -135,9 +150,10 @@ def main(argv=None):
         parser.error('Supply --base-url and set the environment variable named by --api-key-env')
     env = {**os.environ, 'OPENAI_COMPATIBLE_BASE_URL': args.base_url,
            'OPENAI_COMPATIBLE_API_KEY': os.environ[args.api_key_env], 'PYTHONUTF8': '1'}
-    root = (args.output or Path('results') / ('agentdojo_native_clean_' + uuid.uuid4().hex)).resolve()
+    prefix = 'agentdojo_native_attack_' if args.attack else 'agentdojo_native_clean_'
+    root = (args.output or Path('results') / (prefix + uuid.uuid4().hex)).resolve()
     root.mkdir(parents=True, exist_ok=False)
-    report = {'status': 'running', 'pipeline': 'native_agentdojo_cli', 'attack': None, 'defense': None,
+    report = {'status': 'running', 'pipeline': 'native_agentdojo_cli', 'attack': args.attack, 'defense': None,
               'system_role': args.system_role,
               'benchmark_version': args.benchmark_version, 'planned_per_model': len(expected),
               'started_utc': datetime.now(timezone.utc).isoformat(),
@@ -160,6 +176,8 @@ def main(argv=None):
                            '--native-worker', args.system_role,
                            '--model', model_token, '--model-id', model, '--suite', suite,
                            '--benchmark-version', args.benchmark_version, '--logdir', str(logdir)]
+                if args.attack:
+                    command.extend(['--attack', args.attack])
                 for task in args.user_task or []:
                     command.extend(['--user-task', task])
                 print(f'[{index}/{len(args.models)}] {model} / {suite}', flush=True)

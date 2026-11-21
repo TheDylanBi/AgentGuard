@@ -4,7 +4,9 @@ import { createHash } from "node:crypto";
 export function errorDiagnostic(message) {
   const text = String(message ?? "");
   let category = "unknown";
-  if (/maximum context|context.length.exceed|context window|too many tokens|longer than.*context|max_tokens.*(?:exceed|large)/i.test(text)) {
+  if (text === "Stream ended without finish_reason") {
+    category = "incomplete_stream";
+  } else if (/maximum context|context.length.exceed|context window|too many tokens|longer than.*context|max_tokens.*(?:exceed|large)/i.test(text)) {
     category = "context_limit";
   } else if (/tool.*(?:pars|json)|(?:pars|json).*tool/i.test(text)) {
     category = "tool_parse_error";

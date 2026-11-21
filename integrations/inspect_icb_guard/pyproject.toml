@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "icb_guard"
+version = "0.1.0"
+description = "Inspect approval bridge for the existing ICB-Guard review pipeline"
+requires-python = ">=3.10"
+dependencies = ["inspect-ai>=0.3.287"]
+
+[project.entry-points.inspect_ai]
+icb_guard = "icb_guard._registry"
+
+[tool.setuptools]
+packages = ["icb_guard"]

@@ -18,6 +18,26 @@ class OutputBudgetTests(FixtureMixin, unittest.TestCase):
         self.assertEqual(diagnostic["status"], "context_limit")
         self.assertTrue(caught.exception.task_local)
 
+    def test_http_200_missing_finish_at_configured_output_cap_is_task_local(self):
+        with self.assertRaises(ActionModelError) as caught:
+            self.smoke("baseline", response_text="Fixture incomplete reply", final_finish_reason="missing",
+                response_usage={"prompt_tokens": 6538, "completion_tokens": 1024, "total_tokens": 7562},
+                action_output_budget="model")
+        diagnostic = caught.exception.diagnostic
+        self.assertEqual(diagnostic["request"]["sent_max_tokens"], 1024)
+        self.assertEqual(diagnostic["request"]["http_status"], 200)
+        self.assertEqual(diagnostic["status"], "truncated_output")
+        self.assertEqual(diagnostic["reason"], "output_cap_reached_without_finish_reason")
+        self.assertTrue(caught.exception.task_local)
+
+    def test_http_200_missing_finish_below_output_cap_remains_run_error(self):
+        with self.assertRaises(ActionModelError) as caught:
+            self.smoke("baseline", response_text="Fixture incomplete reply", final_finish_reason="missing",
+                response_usage={"prompt_tokens": 6538, "completion_tokens": 128, "total_tokens": 6666},
+                action_output_budget="model")
+        self.assertEqual(caught.exception.diagnostic["status"], "provider_error_or_aborted")
+        self.assertFalse(caught.exception.task_local)
+
     def test_exhausted_context_records_budget_evidence_as_task_local_error(self):
         with self.assertRaises(ActionModelError) as caught:
             self.smoke("baseline", tool="get_current_day", context_window=16384,

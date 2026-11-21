@@ -68,6 +68,10 @@ def make_feedback(verdict, rule, fields=(), contract=None, has_allow=False):
                     'not missing user values. Do not change the values, repeat lookups or ask the '
                     'user to repeat them. A trusted adapter review is required; continue only '
                     'independent steps within the original task.')
+    elif rule == 'review.invalid_output':
+        issue = 'invalid_review_output'
+        guidance = ('This call did not run because its review reply could not be validated. '
+                    'Continue independent authorized steps or report that this step could not be completed.')
     elif rule in ("review.insufficient_evidence", "review.ambiguous_target", "p5.source_evidence") or rule in {
             'provenance.source_unresolved', 'provenance.resource_stale',
             'provenance.resource_binding_ambiguous', 'provenance.resource_binding_unresolved'}:
@@ -166,12 +170,12 @@ class RepairBudget:
         left = max(0, self.repairs + 1 - self.issues[key])
         local = self.scoped_recovery and feedback['issue'] in {
             'review_misalignment', 'binding_prerequisite', 'closed_path', 'invalid_arguments',
-            'tool_effect_boundary_unreviewed'}
+            'tool_effect_boundary_unreviewed', 'invalid_review_output'}
         if not self.stop_reason:
             if self.denials >= self.max_denials:
                 self.stop_reason = 'repair_budget_exhausted'
             elif local:
-                if feedback['issue'] in {'closed_path','tool_effect_boundary_unreviewed'} or not left and feedback['issue']=='review_misalignment':
+                if feedback['issue'] in {'closed_path','tool_effect_boundary_unreviewed','invalid_review_output'} or not left and feedback['issue']=='review_misalignment':
                     if recovery_scope is not None:
                         if feedback['issue']=='closed_path' and self.last_rejection_is_dependency:
                             self.closed_dependency_scopes.add((recovery_scope,dependency_context))

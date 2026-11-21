@@ -23,7 +23,7 @@ from policy.resource_handles import contains_reference, ResourceReferenceError
 from .errors import ActionModelError
 from policy.intent_anchor import (anchor_rules_llm, anchor_effect_llm,
                                   intent_llm_configured, intent_request_diagnostic)
-from .host import SimulationHost, load_manifest, make_contract, tool_description
+from .host import SIMULATION_ABLATIONS, SimulationHost, load_manifest, make_contract, tool_description
 from policy.rule_validation import rule_schema_errors, repair_constraints_preserved
 from policy.intent_validation import rule_semantic_errors, effect_consistency_errors, quarantine_invalid_allows
 from policy.planning import EXECUTION_INSTRUCTION
@@ -43,7 +43,8 @@ class PiPipeline(BasePipelineElement):
                  trusted_current_day=None, action_output_budget="sdk", read_preflight=False, intent_format="rules",
                  authorization_contracts=None, review_coordination='scoped', calendar_reminder_window=None,
                  ablation='full',
-                 trusted_current_time=None, payment_date_policy='explicit',equal_share_policy='explicit',payment_execution_day=None):
+                 trusted_current_time=None, payment_date_policy='explicit', equal_share_policy='explicit',
+                 payment_execution_day=None, review_profile='standard'):
         self.manifest_path = Path(manifest).resolve()
         self.output = Path(output).resolve()
         self.config = {"piPackage": str(Path(pi_package).resolve()),
@@ -59,7 +60,13 @@ class PiPipeline(BasePipelineElement):
         if intent_format == "review" and (mode != "guarded" or read_preflight):
             raise ValueError("review requires guarded mode without read-preflight")
         self.intent_format = intent_format
-        if ablation not in {'full', 'no-semantic-review', 'no-hard-gate'}:
+        if review_profile not in {'standard', 'operation'} or (
+                review_profile == 'operation' and intent_format != 'review'):
+            raise ValueError('Operation-specific review requires guarded review mode')
+        self.review_profile = review_profile
+        if review_profile != 'standard':
+            self.config['reviewProfile'] = review_profile
+        if ablation not in SIMULATION_ABLATIONS:
             raise ValueError('Unknown simulation ablation')
         if ablation != 'full' and (mode != 'guarded' or intent_format != 'review' or authorization_contracts):
             raise ValueError('Ablations require guarded review without trusted contracts')
@@ -135,11 +142,9 @@ class PiPipeline(BasePipelineElement):
         read_rules = []
         text_bindings = []
         boundary, boundary_report = None, None
-        if self.mode == "guarded" and not intent_llm_configured():
+        if self.mode == "guarded" and self.ablation != 'no-semantic-review' and not intent_llm_configured():
             raise RuntimeError("Configure independent ICB_INTENT_LLM_* before guarded evaluation")
         if self.mode == "guarded" and self.intent_format != "review":
-            if not intent_llm_configured():
-                raise RuntimeError("Configure independent ICB_INTENT_LLM_* before guarded evaluation")
             # Only user query, static schema and the clean operator clock:
             # no event contents, history, scoring labels or injected tool output.
             intent_mapping = {name: {key: spec[key] for key in
@@ -272,8 +277,9 @@ class PiPipeline(BasePipelineElement):
                 tempfile.TemporaryDirectory(prefix="icb-dojo-pi-") as scratch:
             signer = Signer(Path(control) / "key.pem", Path(control) / "key.pub")
             audit = CertificateLog(self.output / f"audit-{run_id}.jsonl", signer=signer)
-            from policy.call_review import CallReviewer
-            reviewer = CallReviewer(query, self.clock_prompt) if self.intent_format == "review" else None
+            from policy.call_review import CallReviewer, operation_review
+            caller = operation_review if self.review_profile == 'operation' else None
+            reviewer = CallReviewer(query, self.clock_prompt, caller=caller) if self.intent_format == "review" else None
             host = SimulationHost(runtime, env, manifest, signer, audit, mode=self.mode,
                                   rules=rules, effect_profile=effects, intent_text=query,
                                   business_policy=self.business_policy, task_id=run_id, reviewer=reviewer,
@@ -282,7 +288,8 @@ class PiPipeline(BasePipelineElement):
                                   trusted_current_day=self.trusted_current_day,payment_date_policy=self.payment_date_policy,
                                   payment_execution_day=self.payment_execution_day,
                                   equal_share_policy=self.equal_share_policy,
-                                  scoped_recovery=self.review_coordination=='scoped', ablation=self.ablation)
+                                  scoped_recovery=self.review_coordination=='scoped', ablation=self.ablation,
+                                  operation_review=self.review_profile == 'operation')
             # Task-specific planning hint; tool schemas remain complete and host
             # authorization remains mandatory. No policy reasons or tool data.
             from policy.planning import planning_instruction
@@ -403,8 +410,11 @@ class PiPipeline(BasePipelineElement):
                 while not done:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
-                        raise TimeoutError("pi task deadline exceeded")
-                    event = incoming.get(timeout=remaining)
+                        raise ActionModelError({"stage": "action", "status": "task_deadline"})
+                    try:
+                        event = incoming.get(timeout=remaining)
+                    except queue.Empty:
+                        raise ActionModelError({"stage": "action", "status": "task_deadline"}) from None
                     if event is None or isinstance(event, Exception):
                         raise RuntimeError("pi process ended or sent an invalid frame")
                     kind = event.get("type")
@@ -431,21 +441,28 @@ class PiPipeline(BasePipelineElement):
                                       "request": (stats.get("action_requests") or [{}])[-1],
                                       "provider_error": event.get("providerError")}
                         stats.setdefault("action_responses", []).append(diagnostic)
-                        budget_failure = event.get("stopReason") == "length" or (
-                            event.get("stopReason") == "error"
-                            and (diagnostic["request"].get("http_status") in (400, 413)
-                                 or (diagnostic["request"].get("http_status") == 200
-                                     and diagnostic["usage"].get("output") == 1))
-                            and (event.get("providerError") or {}).get("category", "unknown")
-                                in ("unknown", "context_limit"))
-                        if (diagnostic["request"].get("context_budget_exhausted") or diagnostic["request"].get('context_output_budget_low')) and budget_failure:
+                        stop_reason = diagnostic["stop_reason"]
+                        request = diagnostic["request"]
+                        output_tokens = diagnostic["usage"].get("output")
+                        category = (diagnostic["provider_error"] or {}).get("category", "unknown")
+                        budget_failure = stop_reason == "length" or (
+                            stop_reason == "error"
+                            and (request.get("http_status") in (400, 413)
+                                 or (request.get("http_status") == 200 and output_tokens == 1))
+                            and category in ("unknown", "context_limit", "incomplete_stream"))
+                        if (request.get("context_budget_exhausted") or request.get('context_output_budget_low')) and budget_failure:
                             raise ActionModelError({**diagnostic, "status": "context_limit",
-                                "reason": "sdk_remaining_output_budget_at_floor" if diagnostic['request'].get('context_budget_exhausted') else 'sdk_remaining_output_budget_too_small',
+                                "reason": "sdk_remaining_output_budget_at_floor" if request.get('context_budget_exhausted') else 'sdk_remaining_output_budget_too_small',
                                 "context_evidence": "sdk_budget_not_server_token_count"})
-                        if event.get("stopReason") == "length":
+                        if stop_reason == "length":
                             raise ActionModelError({**diagnostic, "status": "truncated_output"})
-                        if event.get("stopReason") in ("error", "aborted"):
-                            category = (event.get("providerError") or {}).get("category")
+                        sent_tokens = request.get("sent_max_tokens")
+                        if (stop_reason == "error" and category == "incomplete_stream"
+                                and request.get("http_status") == 200 and type(sent_tokens) is int
+                                and sent_tokens > 0 and output_tokens == sent_tokens):
+                            raise ActionModelError({**diagnostic, "status": "truncated_output",
+                                "reason": "output_cap_reached_without_finish_reason"})
+                        if stop_reason in ("error", "aborted"):
                             status = category if category in ("context_limit", "tool_parse_error", "content_filter") else "provider_error_or_aborted"
                             raise ActionModelError({**diagnostic, "status": status})
                         has_calls = any(b.get("type") == "toolCall" for b in event["content"])

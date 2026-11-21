@@ -16,6 +16,14 @@ MAX_TEXT = 32_000
 MAX_NODES = 256
 
 
+def minute_precision_timestamp(value):
+    """Canonicalize minute-equivalent naive timestamps for evidence matching."""
+    if isinstance(value, str) and re.fullmatch(
+            r'\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::00)?', value):
+        return value[:16].replace('T', ' ')
+    return value
+
+
 def _span(text, value):
     if not value or len(value) > 8_000:
         return None
@@ -124,7 +132,8 @@ def argument_provenance(user_text, arguments, contract, *, state_hash, new_resou
         if nodes > MAX_NODES or depth > 8:
             return None
         if isinstance(value, str):
-            return _span(text, value) or temporal.get(value)
+            candidate = temporal.get(minute_precision_timestamp(value))
+            return _span(text, value) or candidate
         if isinstance(value, list) and value:
             children = [witness(v, depth+1) for v in value]
             return {'kind': 'user_list', 'items': children} if all(children) else None

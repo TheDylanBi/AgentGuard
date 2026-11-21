@@ -6,6 +6,7 @@ logs/
 .venv/
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/
 .security-test-state/
 /.local-qwen/

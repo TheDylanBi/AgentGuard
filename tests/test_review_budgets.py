@@ -45,8 +45,28 @@ class ReviewBudgetTests(unittest.TestCase):
 
     def test_repeated_transient_failures_never_become_authorization(self):
         caller=Mock(side_effect=ReviewStageError({'status':'timeout'}));reviewer=CallReviewer('task',caller=caller)
-        with self.assertRaises(ReviewStageError):reviewer.check('c','read',{},semantic(),'s')
+        with self.assertRaises(ReviewStageError) as caught:reviewer.check('c','read',{},semantic(),'s')
+        self.assertEqual(caught.exception.diagnostic['status'], 'review_call_timeout')
+        self.assertTrue(caught.exception.task_local)
         self.assertEqual(caller.call_count,2);self.assertEqual(reviewer.records[-1]['status'],'error')
+
+    def test_timeout_during_format_retry_is_a_task_budget_failure(self):
+        tick = [0.0]
+        def caller(packet, *, timeout_seconds, format_feedback):
+            if format_feedback is None:
+                tick[0] = 10
+                return {**verdict(packet), 'evidence_ids': ['unknown']}
+            tick[0] += timeout_seconds
+            raise ReviewStageError({'status': 'timeout'})
+
+        with patch.dict(os.environ, {}, clear=True), patch('policy.call_review.time.monotonic', side_effect=lambda: tick[0]):
+            reviewer = CallReviewer('Read A.', caller=caller)
+            reviewer.deadline = 35
+            with self.assertRaises(ReviewStageError) as caught:
+                reviewer.check('c', 'read', {}, semantic(), 's')
+        self.assertEqual(caught.exception.diagnostic['status'], 'review_budget_exhausted')
+        self.assertEqual(reviewer.records[0]['request_count'], 2)
+        self.assertTrue(caught.exception.task_local)
 
     def test_bad_request_is_not_a_transient_error(self):
         caller=Mock(side_effect=ReviewStageError({'status':'http_error','http_status':400}))
